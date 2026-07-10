@@ -14,7 +14,7 @@ import signal
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QProcess, QProcessEnvironment, Qt
+from PySide6.QtCore import QDir, QProcess, QProcessEnvironment, QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QStackedWidget,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -40,6 +41,8 @@ from . import host_storage, ruyi_facade
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .state import WizardState
 from .workers import FlashWorker, RepoInitWorker, RepoSyncWorker, run_worker_in_thread
+
+FASTBOOT_PROGRAM = "fastboot"
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -89,6 +92,13 @@ class ProvisionMainWindow(QMainWindow):
         self._worker = None
         self._thread = None
         self._download_process: QProcess | None = None
+        self._fastboot_process: QProcess | None = None
+        self._fastboot_output = ""
+        self._fastboot_timed_out = False
+        self._fastboot_timer = QTimer(self)
+        self._fastboot_timer.setSingleShot(True)
+        self._fastboot_timer.setInterval(10_000)
+        self._fastboot_timer.timeout.connect(self._on_fastboot_timeout)
         self._download_cancelled = False
         self._download_recoverable = False
         self._flash_recoverable = False
@@ -111,6 +121,7 @@ class ProvisionMainWindow(QMainWindow):
             self._start_repo_init()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        self._stop_fastboot_check()
         if self._download_process is not None:
             ret = QMessageBox.question(
                 self,
@@ -148,7 +159,9 @@ class ProvisionMainWindow(QMainWindow):
 
         self._steps = QListWidget()
         self._steps.setFixedWidth(180)
-        self._steps.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._steps.setObjectName("stepList")
+        self._steps.setAccessibleName("Provisioning steps")
+        self._steps.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         for i, title in enumerate(self.STEP_TITLES):
             item = QListWidgetItem(f"{i + 1}. {title}")
             item.setData(Qt.ItemDataRole.UserRole, i)
@@ -189,6 +202,9 @@ class ProvisionMainWindow(QMainWindow):
         button_row.addStretch()
         self._back_btn = QPushButton("Back")
         self._next_btn = QPushButton("Next")
+        self._back_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack))
+        self._next_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward))
+        self._next_btn.setObjectName("primaryButton")
         self._back_btn.clicked.connect(self._go_back)
         self._next_btn.clicked.connect(self._go_next)
         button_row.addWidget(self._back_btn)
@@ -196,6 +212,7 @@ class ProvisionMainWindow(QMainWindow):
         right_layout.addLayout(button_row)
 
         self.setCentralWidget(root)
+        self._apply_styles()
 
     def _build_pages(self) -> None:
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
@@ -213,6 +230,7 @@ class ProvisionMainWindow(QMainWindow):
         )
 
         self._device_list = QListWidget()
+        self._device_list.setAccessibleName("Devices")
         self._device_list.currentRowChanged.connect(self._refresh_buttons)
         self._device_list.itemDoubleClicked.connect(self._activate_current_step)
         self._device_status = QLabel("")
@@ -226,11 +244,13 @@ class ProvisionMainWindow(QMainWindow):
         )
 
         self._variant_list = QListWidget()
+        self._variant_list.setAccessibleName("Device variants")
         self._variant_list.currentRowChanged.connect(self._refresh_buttons)
         self._variant_list.itemDoubleClicked.connect(self._activate_current_step)
         self._add_page("Pick the device variant", [self._variant_list])
 
         self._combo_list = QListWidget()
+        self._combo_list.setAccessibleName("System images")
         self._combo_list.currentRowChanged.connect(self._refresh_buttons)
         self._combo_list.itemDoubleClicked.connect(self._activate_current_step)
         self._add_page("Pick the system image", [self._combo_list])
@@ -253,6 +273,7 @@ class ProvisionMainWindow(QMainWindow):
         )
 
         self._packages_list = QListWidget()
+        self._packages_list.setAccessibleName("Packages to install")
         self._packages_list.itemDoubleClicked.connect(self._activate_current_step)
         self._add_page(
             "Confirm packages",
@@ -265,6 +286,9 @@ class ProvisionMainWindow(QMainWindow):
         self._download_status = QLabel("Download has not started.")
         self._download_log = self._make_log_view()
         self._cancel_download_btn = QPushButton("Cancel download")
+        self._cancel_download_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+        )
         self._cancel_download_btn.clicked.connect(self._cancel_download)
         self._resume_download_btn = QPushButton("Resume download")
         self._resume_download_btn.clicked.connect(self._resume_download)
@@ -312,6 +336,9 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_status = QLabel("")
         self._fastboot_status.setWordWrap(True)
         self._check_fastboot_btn = QPushButton("Check fastboot devices")
+        self._check_fastboot_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
         self._check_fastboot_btn.clicked.connect(self._check_fastboot_devices)
         self._proceed_cb = QCheckBox("Proceed with flashing.")
         self._proceed_cb.toggled.connect(self._refresh_buttons)
@@ -357,7 +384,9 @@ class ProvisionMainWindow(QMainWindow):
         page = QWidget()
         layout = QVBoxLayout(page)
         title_label = QLabel(f"<b>{title}</b>")
+        title_label.setObjectName("pageTitle")
         title_label.setWordWrap(True)
+        page.setAccessibleName(title)
         layout.addWidget(title_label)
         for widget in widgets:
             if isinstance(widget, QLabel):
@@ -374,6 +403,35 @@ class ProvisionMainWindow(QMainWindow):
         font.setFamily("Monospace")
         view.setFont(font)
         return view
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QMainWindow { background: #f4f5f7; color: #202124; }
+            QListWidget#stepList {
+                background: #ffffff;
+                border: 1px solid #d8dce2;
+                border-radius: 6px;
+                padding: 4px;
+            }
+            QListWidget#stepList::item { min-height: 34px; padding: 3px 7px; }
+            QListWidget#stepList::item:selected { background: #dcefe5; color: #145c3b; }
+            QListWidget#stepList::item:disabled { color: #90969f; }
+            QGroupBox {
+                background: #ffffff;
+                border: 1px solid #d8dce2;
+                border-radius: 6px;
+                margin-top: 9px;
+                padding: 8px;
+            }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
+            QLabel#pageTitle { font-size: 17px; color: #202124; }
+            QPushButton { min-height: 30px; padding: 2px 10px; }
+            QPushButton#primaryButton { background: #176b45; color: white; border: 0; border-radius: 4px; }
+            QPushButton#primaryButton:disabled { background: #aeb7b2; }
+            QPlainTextEdit { background: #161a20; color: #e7eaf0; border: 1px solid #3a4049; }
+            """
+        )
 
     # -------------------------------------------------------------- actions
 
@@ -443,15 +501,118 @@ class ProvisionMainWindow(QMainWindow):
         self._refresh_buttons()
 
     def _check_fastboot_devices(self) -> None:
-        ok, output = ruyi_facade.check_fastboot_devices()
-        self._fastboot_ok = ok
-        if ok:
-            self._fastboot_status.setStyleSheet("color: #1a7f37;")
-            self._fastboot_status.setText("fastboot devices found:\n" + output)
-        else:
-            self._fastboot_status.setStyleSheet("color: #c01c28;")
-            self._fastboot_status.setText(output)
+        self._stop_fastboot_check()
+        self._fastboot_ok = False
+        self._fastboot_output = ""
+        self._fastboot_timed_out = False
+        self._fastboot_status.setStyleSheet("")
+        self._fastboot_status.setText("Checking fastboot devices...")
+        self._check_fastboot_btn.setEnabled(False)
+
+        process = QProcess(self)
+        self._fastboot_process = process
+        process.setProgram(FASTBOOT_PROGRAM)
+        process.setArguments(["devices"])
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.readyReadStandardOutput.connect(
+            lambda p=process: self._on_fastboot_output(p)
+        )
+        process.finished.connect(
+            lambda ret, _status, p=process: self._on_fastboot_finished(p, ret)
+        )
+        process.errorOccurred.connect(
+            lambda error, p=process: self._on_fastboot_error(p, error)
+        )
+        process.start()
+        self._fastboot_timer.start()
         self._refresh_buttons()
+
+    def _on_fastboot_output(self, process: QProcess) -> None:
+        if process is not self._fastboot_process:
+            return
+        self._fastboot_output += bytes(process.readAllStandardOutput()).decode(
+            errors="replace"
+        )
+
+    def _on_fastboot_finished(self, process: QProcess, ret: int) -> None:
+        if process is not self._fastboot_process:
+            process.deleteLater()
+            return
+        self._on_fastboot_output(process)
+        output = self._fastboot_output.strip()
+        devices = [line for line in output.splitlines() if line.strip()]
+        if self._fastboot_timed_out:
+            self._complete_fastboot_check(process, False, "fastboot devices timed out.")
+        elif ret != 0:
+            self._complete_fastboot_check(
+                process,
+                False,
+                output or f"fastboot devices exited with code {ret}.",
+            )
+        elif not devices:
+            self._complete_fastboot_check(process, False, "No fastboot devices found.")
+        else:
+            self._complete_fastboot_check(
+                process,
+                True,
+                "fastboot devices found:\n" + output,
+            )
+
+    def _on_fastboot_error(
+        self,
+        process: QProcess,
+        error: QProcess.ProcessError,
+    ) -> None:
+        if process is not self._fastboot_process:
+            return
+        if self._fastboot_timed_out:
+            message = "fastboot devices timed out."
+        elif error == QProcess.ProcessError.FailedToStart:
+            message = "fastboot command was not found."
+        else:
+            message = f"fastboot check failed: {error.name}."
+        self._complete_fastboot_check(process, False, message)
+
+    def _on_fastboot_timeout(self) -> None:
+        process = self._fastboot_process
+        if process is None:
+            return
+        self._fastboot_timed_out = True
+        process.kill()
+
+    def _complete_fastboot_check(
+        self,
+        process: QProcess,
+        ok: bool,
+        message: str,
+    ) -> None:
+        if process is not self._fastboot_process:
+            return
+        self._fastboot_timer.stop()
+        self._fastboot_process = None
+        process.deleteLater()
+        self._fastboot_ok = ok
+        self._fastboot_status.setStyleSheet(
+            "color: #1a7f37;" if ok else "color: #c01c28;"
+        )
+        self._fastboot_status.setText(message)
+        self._check_fastboot_btn.setEnabled(True)
+        self._refresh_buttons()
+
+    def _stop_fastboot_check(self) -> None:
+        self._fastboot_timer.stop()
+        process = self._fastboot_process
+        self._fastboot_process = None
+        if process is None:
+            return
+        process.blockSignals(True)
+        if process.state() != QProcess.ProcessState.NotRunning:
+            process.terminate()
+            if not process.waitForFinished(1000):
+                process.kill()
+                process.waitForFinished(1000)
+        process.deleteLater()
+        self._check_fastboot_btn.setEnabled(True)
 
     def _cancel_download(self) -> None:
         if self._download_process is None:
@@ -650,6 +811,8 @@ class ProvisionMainWindow(QMainWindow):
         self._worker = None
 
     def _set_step(self, step: int) -> None:
+        if self._current_step == self.STEP_REVIEW and step != self.STEP_REVIEW:
+            self._stop_fastboot_check()
         if step < self._current_step:
             self._invalidate_downstream(step)
         self._current_step = step
@@ -657,8 +820,43 @@ class ProvisionMainWindow(QMainWindow):
         self._steps.setCurrentRow(step)
         self._steps.blockSignals(False)
         self._stack.setCurrentIndex(step)
+        self._refresh_step_items()
         self._refresh_summary()
         self._refresh_buttons()
+        QTimer.singleShot(0, self._focus_current_step)
+
+    def _refresh_step_items(self) -> None:
+        for row in range(self._steps.count()):
+            item = self._steps.item(row)
+            flags = Qt.ItemFlag.ItemIsSelectable
+            if row <= self._current_step:
+                flags |= Qt.ItemFlag.ItemIsEnabled
+            item.setFlags(flags)
+
+    def _focus_current_step(self) -> None:
+        target: QWidget | None = None
+        if self._current_step == self.STEP_DEVICE:
+            target = self._device_list
+        elif self._current_step == self.STEP_VARIANT:
+            target = self._variant_list
+        elif self._current_step == self.STEP_COMBO:
+            target = self._combo_list
+        elif self._current_step == self.STEP_VERSIONS and self._version_combos:
+            target = self._version_combos[0]
+        elif self._current_step == self.STEP_PACKAGES:
+            target = self._packages_list
+        elif self._current_step == self.STEP_DOWNLOAD:
+            target = self._download_log
+        elif self._current_step == self.STEP_STORAGE and self._storage_inputs:
+            target = next(iter(self._storage_inputs.values()))
+        elif self._current_step == self.STEP_REVIEW:
+            target = self._proceed_cb
+        elif self._current_step == self.STEP_FLASH:
+            target = self._flash_log
+        elif self._current_step == self.STEP_DONE:
+            target = self._next_btn
+        if target is not None and target.isEnabled():
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _invalidate_downstream(self, dest_step: int) -> None:
         if dest_step < self.STEP_DONE:
@@ -1033,6 +1231,8 @@ class ProvisionMainWindow(QMainWindow):
         for sel in selections:
             label = QLabel(sel.package_name)
             combo = QComboBox()
+            combo.setAccessibleName(f"Version for {sel.package_name}")
+            label.setBuddy(combo)
             for option in sel.options:
                 combo.addItem(option.display_name, option.atom)
             combo.setEnabled(sel.locked_reason is None and len(sel.options) > 1)
@@ -1080,6 +1280,8 @@ class ProvisionMainWindow(QMainWindow):
             label = QLabel(f"{desc} ({part})")
             edit = QComboBox()
             edit.setEditable(True)
+            edit.setAccessibleName(f"Target disk for {desc}")
+            label.setBuddy(edit)
             edit.lineEdit().setPlaceholderText("/dev/...")
             edit.currentTextChanged.connect(self._refresh_buttons)
             for disk in disks:
@@ -1093,7 +1295,12 @@ class ProvisionMainWindow(QMainWindow):
             edit.currentTextChanged.connect(
                 lambda _text, e=edit, w=warning, c=confirm: self._on_storage_target_changed(e, w, c)
             )
-            browse = QPushButton("...")
+            browse = QPushButton()
+            browse.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+            )
+            browse.setToolTip(f"Choose target disk or image file for {desc}")
+            browse.setAccessibleName(f"Choose target disk or image file for {desc}")
             browse.clicked.connect(lambda _=False, e=edit: self._browse_storage(e))
             row = QHBoxLayout()
             row.addWidget(label, 2)
