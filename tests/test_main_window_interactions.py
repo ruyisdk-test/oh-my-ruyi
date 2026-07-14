@@ -80,6 +80,8 @@ def test_flash_revalidates_mount_state(
     monkeypatch.setattr(ruyi_facade, "part_description", lambda _part: "Whole disk")
     monkeypatch.setattr(host_storage, "list_disks", lambda: [])
     monkeypatch.setattr(host_storage, "is_disk_or_child_mounted", lambda _path: True)
+    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "target-v1")
+    window.state.host_blkdev_fingerprints = {"disk": "target-v1"}
 
     window._start_flash()
 
@@ -163,6 +165,64 @@ def test_fastboot_check_reports_no_devices(
     assert window._fastboot_status.text() == "No fastboot devices found."
 
 
+def test_fastboot_check_ignores_stderr_only_output(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+    tmp_path,
+) -> None:
+    fastboot = tmp_path / "fastboot"
+    fastboot.write_text("#!/bin/sh\nprintf 'warning only\\n' >&2\nexit 0\n")
+    fastboot.chmod(0o755)
+    monkeypatch.setattr(main_window, "FASTBOOT_PROGRAM", os.fspath(fastboot))
+
+    window._check_fastboot_devices()
+
+    qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
+    assert not window._fastboot_ok
+    assert "No fastboot devices found." in window._fastboot_status.text()
+
+
+def test_flash_rejects_replaced_target(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    target = tmp_path / "target.img"
+    target.touch()
+    window.state.prepared = SimpleNamespace(
+        requested_host_blkdevs=["disk"],
+        needed_cmds=set(),
+    )
+    window.state.host_blkdev_map = {"disk": str(target)}
+    window.state.host_blkdev_fingerprints = {"disk": "old-device"}
+    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "new-device")
+    monkeypatch.setattr(ruyi_facade, "part_description", lambda _part: "Whole disk")
+    monkeypatch.setattr(host_storage, "list_disks", lambda: [])
+
+    window._start_flash()
+
+    assert window._current_step == window.STEP_STORAGE
+    assert "has changed" in window._storage_error.text()
+
+
+def test_done_back_returns_to_fresh_review(window: ProvisionMainWindow, monkeypatch) -> None:
+    window.state.pkg_atoms = ["image/pkg"]
+    window.state.prepared = SimpleNamespace(requested_host_blkdevs=[], needed_cmds=set())
+    window._proceed_cb.setChecked(True)
+    window._fastboot_ok = True
+    monkeypatch.setattr(
+        window,
+        "_populate_review",
+        lambda: (window._proceed_cb.setChecked(False), setattr(window, "_fastboot_ok", False)),
+    )
+    window._set_step(window.STEP_DONE)
+
+    window._go_back()
+
+    assert window._current_step == window.STEP_REVIEW
+    assert not window._proceed_cb.isChecked()
+    assert not window._fastboot_ok
 def test_storage_controls_have_accessible_labels(
     window: ProvisionMainWindow,
     monkeypatch,

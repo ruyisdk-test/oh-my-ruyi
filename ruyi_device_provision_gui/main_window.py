@@ -94,6 +94,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_process: QProcess | None = None
         self._fastboot_process: QProcess | None = None
         self._fastboot_output = ""
+        self._fastboot_error_output = ""
         self._fastboot_timed_out = False
         self._fastboot_timer = QTimer(self)
         self._fastboot_timer.setSingleShot(True)
@@ -504,6 +505,7 @@ class ProvisionMainWindow(QMainWindow):
         self._stop_fastboot_check()
         self._fastboot_ok = False
         self._fastboot_output = ""
+        self._fastboot_error_output = ""
         self._fastboot_timed_out = False
         self._fastboot_status.setStyleSheet("")
         self._fastboot_status.setText("Checking fastboot devices...")
@@ -513,9 +515,11 @@ class ProvisionMainWindow(QMainWindow):
         self._fastboot_process = process
         process.setProgram(FASTBOOT_PROGRAM)
         process.setArguments(["devices"])
-        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(
             lambda p=process: self._on_fastboot_output(p)
+        )
+        process.readyReadStandardError.connect(
+            lambda p=process: self._on_fastboot_stderr(p)
         )
         process.finished.connect(
             lambda ret, _status, p=process: self._on_fastboot_finished(p, ret)
@@ -534,28 +538,45 @@ class ProvisionMainWindow(QMainWindow):
             errors="replace"
         )
 
+    def _on_fastboot_stderr(self, process: QProcess) -> None:
+        if process is not self._fastboot_process:
+            return
+        self._fastboot_error_output += bytes(process.readAllStandardError()).decode(
+            errors="replace"
+        )
+
     def _on_fastboot_finished(self, process: QProcess, ret: int) -> None:
         if process is not self._fastboot_process:
             process.deleteLater()
             return
         self._on_fastboot_output(process)
-        output = self._fastboot_output.strip()
-        devices = [line for line in output.splitlines() if line.strip()]
+        self._on_fastboot_stderr(process)
+        stdout = self._fastboot_output.strip()
+        stderr = self._fastboot_error_output.strip()
+        devices = [
+            line.strip()
+            for line in stdout.splitlines()
+            if len(line.split()) >= 2 and line.split()[1] == "fastboot"
+        ]
         if self._fastboot_timed_out:
             self._complete_fastboot_check(process, False, "fastboot devices timed out.")
         elif ret != 0:
             self._complete_fastboot_check(
                 process,
                 False,
-                output or f"fastboot devices exited with code {ret}.",
+                stderr or stdout or f"fastboot devices exited with code {ret}.",
             )
         elif not devices:
-            self._complete_fastboot_check(process, False, "No fastboot devices found.")
+            detail = stderr or stdout
+            message = "No fastboot devices found."
+            if detail:
+                message += "\n" + detail
+            self._complete_fastboot_check(process, False, message)
         else:
             self._complete_fastboot_check(
                 process,
                 True,
-                "fastboot devices found:\n" + output,
+                "fastboot devices found:\n" + "\n".join(devices),
             )
 
     def _on_fastboot_error(
@@ -629,6 +650,8 @@ class ProvisionMainWindow(QMainWindow):
 
     def _reselect_versions(self) -> None:
         self.state.prepared = None
+        self.state.host_blkdev_map = {}
+        self.state.host_blkdev_fingerprints = {}
         self._download_ok = False
         self._download_recoverable = False
         if self._versions_visited and self.state.mr is not None and self.state.combo is not None:
@@ -650,6 +673,7 @@ class ProvisionMainWindow(QMainWindow):
         self.state.pkg_atoms = []
         self.state.prepared = None
         self.state.host_blkdev_map = {}
+        self.state.host_blkdev_fingerprints = {}
         self.state.flash_ret = None
         self._populate_devices()
         self._set_step(self.STEP_DEVICE)
@@ -829,7 +853,9 @@ class ProvisionMainWindow(QMainWindow):
         for row in range(self._steps.count()):
             item = self._steps.item(row)
             flags = Qt.ItemFlag.ItemIsSelectable
-            if row <= self._current_step:
+            if row == self._current_step or (
+                row < self._current_step and self._can_open_step(row)
+            ):
                 flags |= Qt.ItemFlag.ItemIsEnabled
             item.setFlags(flags)
 
@@ -859,11 +885,12 @@ class ProvisionMainWindow(QMainWindow):
             target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _invalidate_downstream(self, dest_step: int) -> None:
-        if dest_step < self.STEP_DONE:
+        if dest_step < self.STEP_FLASH:
             self.state.flash_ret = None
             self._flash_recoverable = False
         if dest_step < self.STEP_STORAGE:
             self.state.host_blkdev_map = {}
+            self.state.host_blkdev_fingerprints = {}
         if dest_step < self.STEP_DOWNLOAD:
             self.state.prepared = None
             self._download_ok = False
@@ -892,6 +919,8 @@ class ProvisionMainWindow(QMainWindow):
             self._steps.setCurrentRow(self._current_step)
             return
         if self._can_open_step(row):
+            if row == self.STEP_REVIEW:
+                self._populate_review()
             self._set_step(row)
         else:
             self._steps.setCurrentRow(self._current_step)
@@ -928,7 +957,7 @@ class ProvisionMainWindow(QMainWindow):
         if step == self.STEP_REVIEW:
             return self._download_ok and self.state.prepared is not None
         if step == self.STEP_FLASH:
-            return self.state.flash_ret is not None or self._review_complete_if_possible()
+            return False
         if step == self.STEP_DONE:
             return self.state.flash_ret is not None or (self.state.combo is not None and not self.state.pkg_atoms)
         return False
@@ -997,7 +1026,11 @@ class ProvisionMainWindow(QMainWindow):
             self._set_step(self.STEP_REVIEW)
 
     def _is_busy(self) -> bool:
-        return self._thread is not None or self._download_process is not None
+        return (
+            self._thread is not None
+            or self._download_process is not None
+            or self._fastboot_process is not None
+        )
 
     def _activate_current_step(self, _item=None) -> None:
         if self._is_busy() or not self._can_go_next():
@@ -1011,6 +1044,7 @@ class ProvisionMainWindow(QMainWindow):
             self._set_step(self.STEP_STORAGE)
         else:
             self.state.host_blkdev_map = {}
+            self.state.host_blkdev_fingerprints = {}
             self._populate_review()
             self._set_step(self.STEP_REVIEW)
 
@@ -1111,7 +1145,11 @@ class ProvisionMainWindow(QMainWindow):
             else:
                 prev = self.STEP_DOWNLOAD
         elif step == self.STEP_DONE:
-            prev = self.STEP_FLASH if self.state.pkg_atoms else self.STEP_PACKAGES
+            if self.state.pkg_atoms and self.state.prepared is not None:
+                self._populate_review()
+                prev = self.STEP_REVIEW
+            else:
+                prev = self.STEP_PACKAGES
         else:
             prev = None
         if prev is not None:
@@ -1283,7 +1321,6 @@ class ProvisionMainWindow(QMainWindow):
             edit.setAccessibleName(f"Target disk for {desc}")
             label.setBuddy(edit)
             edit.lineEdit().setPlaceholderText("/dev/...")
-            edit.currentTextChanged.connect(self._refresh_buttons)
             for disk in disks:
                 edit.addItem(disk.display_name, disk.path)
             warning = QLabel("The selected disk or one of its partitions is mounted.")
@@ -1391,12 +1428,16 @@ class ProvisionMainWindow(QMainWindow):
             path = self._storage_path(edit)
             if not path or not os.path.exists(path):
                 return False
-            if host_storage.is_disk_or_child_mounted(path) and not self._storage_mount_confirmations[part].isChecked():
+            if (
+                self._storage_mount_warnings[part].isVisible()
+                and not self._storage_mount_confirmations[part].isChecked()
+            ):
                 return False
         return True
 
     def _commit_storage(self) -> bool:
-        self.state.host_blkdev_map = {}
+        host_blkdev_map = {}
+        fingerprints: dict[str, str] = {}
         for part, edit in self._storage_inputs.items():
             path = self._storage_path(edit)
             if not os.path.exists(path):
@@ -1407,7 +1448,16 @@ class ProvisionMainWindow(QMainWindow):
                     f"'{path}' is mounted. Confirm the mounted-device warning before continuing."
                 )
                 return False
-            self.state.host_blkdev_map[part] = path
+            fingerprint = host_storage.device_fingerprint(path)
+            if fingerprint is None:
+                self._storage_error.setText(
+                    f"Could not verify the identity of '{path}'. Select the target again."
+                )
+                return False
+            host_blkdev_map[part] = path
+            fingerprints[part] = fingerprint
+        self.state.host_blkdev_map = host_blkdev_map
+        self.state.host_blkdev_fingerprints = fingerprints
         self._refresh_summary()
         return True
 
@@ -1418,6 +1468,17 @@ class ProvisionMainWindow(QMainWindow):
             path = self.state.host_blkdev_map.get(part, "").strip()
             if not path or not os.path.exists(path):
                 return f"The selected target for {part} is no longer available. Select it again."
+            expected_fingerprint = self.state.host_blkdev_fingerprints.get(part)
+            current_fingerprint = host_storage.device_fingerprint(path)
+            if (
+                expected_fingerprint is None
+                or current_fingerprint is None
+                or current_fingerprint != expected_fingerprint
+            ):
+                return (
+                    f"The device at '{path}' has changed since review. "
+                    "Select and confirm the target again."
+                )
             confirmation = self._storage_mount_confirmations.get(part)
             if host_storage.is_disk_or_child_mounted(path) and (
                 confirmation is None or not confirmation.isChecked()

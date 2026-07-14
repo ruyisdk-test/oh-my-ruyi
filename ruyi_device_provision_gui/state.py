@@ -41,6 +41,7 @@ class WizardState:
 
     # Filled by the Storage step.
     host_blkdev_map: PartitionMapDecl = field(default_factory=dict)
+    host_blkdev_fingerprints: dict[str, str] = field(default_factory=dict)
 
     # Outcome of the flashing step.
     flash_ret: Optional[int] = None

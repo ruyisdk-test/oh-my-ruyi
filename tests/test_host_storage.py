@@ -2,16 +2,53 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+import os
 
 from ruyi_device_provision_gui import host_storage
 
 
 def test_disk_mount_detection_checks_children(monkeypatch) -> None:
-    monkeypatch.setattr(host_storage, "_disk_child_paths", lambda path: [f"{path}1"])
+    monkeypatch.setattr(
+        host_storage,
+        "_linux_related_block_device_ids",
+        lambda _path: {101, 202},
+    )
+    monkeypatch.setattr(host_storage, "_mounted_block_device_ids", lambda: {202})
     monkeypatch.setattr(
         host_storage,
         "is_path_mounted_blkdev",
-        lambda path: path == "/dev/sda1",
+        lambda _path: False,
+    )
+
+    assert host_storage.is_disk_or_child_mounted("/dev/sda")
+
+
+def test_linux_mount_detection_fails_closed_when_topology_is_unknown(monkeypatch) -> None:
+    monkeypatch.setattr(host_storage.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        host_storage,
+        "_linux_related_block_device_ids",
+        lambda _path: None,
+    )
+
+    assert host_storage.is_disk_or_child_mounted("/dev/sda")
+
+
+def test_linux_mount_detection_follows_holder_devices(monkeypatch, tmp_path: Path) -> None:
+    disk = tmp_path / "sda"
+    partition = disk / "sda1"
+    holder = partition / "holders" / "dm-0"
+    holder.mkdir(parents=True)
+    (disk / "dev").write_text("8:0")
+    (partition / "dev").write_text("8:1")
+    (partition / "partition").write_text("")
+    (holder / "dev").write_text("253:0")
+    monkeypatch.setattr(host_storage, "_path_block_device_id", lambda _path: os.makedev(8, 0))
+    monkeypatch.setattr(host_storage, "_linux_sysfs_node", lambda _device_id: disk)
+    monkeypatch.setattr(
+        host_storage,
+        "_mounted_block_device_ids",
+        lambda: {os.makedev(253, 0)},
     )
 
     assert host_storage.is_disk_or_child_mounted("/dev/sda")

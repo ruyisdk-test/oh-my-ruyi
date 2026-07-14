@@ -124,9 +124,13 @@ On macOS, the automatic list is built from `diskutil list -plist` and
 `/dev/rdiskN`.
 
 If the selected disk or one of its partitions is mounted, the GUI shows a red
-warning and requires an explicit confirmation checkbox before continuing.
-The mounted check uses ruyi's mount parser for `/proc/self/mounts` and checks
-both the selected disk and its sysfs child partitions.
+warning and requires an explicit confirmation checkbox before continuing. On
+Linux, the check also follows device-mapper/holder relationships so mounts
+through LUKS, LVM, or RAID layers are not silently missed. The check uses
+ruyi's mount parser for `/proc/self/mounts`; macOS uses `diskutil` metadata.
+The selected target's device identity is recorded when Storage is committed
+and verified again immediately before flashing, so a replaced `/dev` path is
+not silently reused.
 
 ## Flashing
 

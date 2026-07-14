@@ -10,6 +10,7 @@ import os
 import pathlib
 import platform
 import plistlib
+import stat
 import subprocess
 from dataclasses import dataclass
 from typing import Any, Iterable
@@ -46,10 +47,72 @@ def is_path_mounted_blkdev(path: str) -> bool:
 
 def is_disk_or_child_mounted(path: str) -> bool:
     """Return whether ``path`` or a child partition below it is mounted."""
-    if platform.system() == "Darwin":
+    system = platform.system()
+    if system == "Darwin":
+        if not pathlib.Path(path).name.startswith("disk") and not pathlib.Path(path).name.startswith("rdisk"):
+            return is_path_mounted_blkdev(path)
         return _darwin_disk_or_child_mounted(path)
-    paths = {path, *_disk_child_paths(path)}
-    return any(is_path_mounted_blkdev(candidate) for candidate in paths)
+    if system != "Linux":
+        return is_path_mounted_blkdev(path)
+    related = _linux_related_block_device_ids(path)
+    if related is None:
+        return True
+    return bool(related & _mounted_block_device_ids())
+
+
+def device_fingerprint(path: str) -> str | None:
+    """Return an identity used to detect target replacement before flashing."""
+    try:
+        path_stat = os.stat(path)
+    except OSError:
+        return None
+
+    if platform.system() == "Darwin":
+        disk = pathlib.Path(path).name.removeprefix("r")
+        if disk.startswith("disk"):
+            info = _darwin_diskutil_plist("info", "-plist", disk)
+            if info is None:
+                return None
+            values = (
+                info.get("DeviceIdentifier"),
+                info.get("MediaUUID"),
+                info.get("DiskUUID"),
+                info.get("TotalSize"),
+                info.get("MediaName"),
+            )
+            return "darwin:" + ":".join(str(value or "") for value in values)
+
+    if stat.S_ISBLK(path_stat.st_mode) or stat.S_ISCHR(path_stat.st_mode):
+        parts = [
+            platform.system().lower(),
+            str(os.major(path_stat.st_rdev)),
+            str(os.minor(path_stat.st_rdev)),
+        ]
+        if platform.system() == "Linux":
+            sysfs_node = _linux_sysfs_node(path_stat.st_rdev)
+            if sysfs_node is None:
+                return None
+            parts.extend(
+                [
+                    str(sysfs_node),
+                    _read_first_sysfs_text(
+                        sysfs_node / "wwid",
+                        sysfs_node / "device" / "wwid",
+                    ),
+                    _read_first_sysfs_text(
+                        sysfs_node / "device" / "serial",
+                        sysfs_node / "serial",
+                    ),
+                    _read_sysfs_text(sysfs_node / "diskseq") or "",
+                    _read_sysfs_text(sysfs_node / "size") or "",
+                ]
+            )
+        return "block:" + ":".join(parts)
+
+    return (
+        f"file:{path_stat.st_dev}:{path_stat.st_ino}:"
+        f"{path_stat.st_size}:{path_stat.st_mtime_ns}"
+    )
 
 
 def list_disks() -> list[BlockDeviceChoice]:
@@ -171,25 +234,33 @@ def _darwin_list_disks() -> list[BlockDeviceChoice]:
 
 def _darwin_disk_or_child_mounted(path: str) -> bool:
     disk = pathlib.Path(path).name.removeprefix("r")
-    info = _darwin_diskutil_plist("info", "-plist", disk)
-    if info is not None and info.get("MountPoint"):
-        return True
     payload = _darwin_diskutil_plist("list", "-plist", disk)
     if payload is None:
-        return False
-    for item in payload.get("AllDisksAndPartitions", []):
-        if not isinstance(item, dict) or item.get("DeviceIdentifier") != disk:
-            continue
-        for part in item.get("Partitions", []):
-            if not isinstance(part, dict):
-                continue
-            part_id = part.get("DeviceIdentifier")
-            if not isinstance(part_id, str):
-                continue
-            part_info = _darwin_diskutil_plist("info", "-plist", part_id)
-            if part_info is not None and part_info.get("MountPoint"):
-                return True
-    return False
+        return True
+    identifiers = _darwin_device_identifiers(payload)
+    identifiers.add(disk)
+    topology_unknown = False
+    for identifier in identifiers:
+        info = _darwin_diskutil_plist("info", "-plist", identifier)
+        if info is None:
+            topology_unknown = True
+        elif info.get("MountPoint"):
+            return True
+    return topology_unknown
+
+
+def _darwin_device_identifiers(value: object) -> set[str]:
+    identifiers: set[str] = set()
+    if isinstance(value, dict):
+        identifier = value.get("DeviceIdentifier")
+        if isinstance(identifier, str):
+            identifiers.add(identifier)
+        for child in value.values():
+            identifiers.update(_darwin_device_identifiers(child))
+    elif isinstance(value, list):
+        for child in value:
+            identifiers.update(_darwin_device_identifiers(child))
+    return identifiers
 
 
 def _darwin_diskutil_plist(*args: str) -> dict[str, Any] | None:
@@ -211,20 +282,89 @@ def _darwin_diskutil_plist(*args: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _disk_child_paths(path: str) -> list[str]:
-    name = pathlib.Path(path).name
-    sys_disk = pathlib.Path("/sys/block") / name
-    if not sys_disk.is_dir():
-        return []
-    children: list[str] = []
+def _linux_related_block_device_ids(path: str) -> set[int] | None:
+    device_id = _path_block_device_id(path)
+    if device_id is None:
+        return set()
+    root = _linux_sysfs_node(device_id)
+    if root is None:
+        return None
+
+    device_ids: set[int] = set()
+    visited: set[pathlib.Path] = set()
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        try:
+            node = node.resolve(strict=True)
+        except OSError:
+            return None
+        if node in visited:
+            continue
+        visited.add(node)
+        raw_dev = _read_sysfs_text(node / "dev")
+        if raw_dev is None:
+            return None
+        try:
+            major, minor = (int(part) for part in raw_dev.split(":", 1))
+        except ValueError:
+            return None
+        device_ids.add(os.makedev(major, minor))
+
+        try:
+            pending.extend(
+                child
+                for child in node.iterdir()
+                if (child / "partition").exists()
+            )
+        except OSError:
+            return None
+        holders = node / "holders"
+        if holders.is_dir():
+            try:
+                pending.extend(holders.iterdir())
+            except OSError:
+                return None
+    return device_ids
+
+
+def _path_block_device_id(path: str) -> int | None:
     try:
-        entries = sys_disk.iterdir()
+        path_stat = os.stat(path)
     except OSError:
-        return []
-    for entry in entries:
-        if (entry / "partition").exists():
-            children.append(f"{DEFAULT_DEVICE_ROOT}/{entry.name}")
-    return children
+        return None
+    return path_stat.st_rdev if stat.S_ISBLK(path_stat.st_mode) else None
+
+
+def _linux_sysfs_node(device_id: int) -> pathlib.Path | None:
+    node = pathlib.Path(
+        f"/sys/dev/block/{os.major(device_id)}:{os.minor(device_id)}"
+    )
+    try:
+        return node.resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _mounted_block_device_ids() -> set[int]:
+    from ruyi.utils import mounts
+
+    device_ids: set[int] = set()
+    for mount in mounts.parse_mounts():
+        if not mount.source_is_blkdev:
+            continue
+        try:
+            device_ids.add(mount.source_path.stat().st_rdev)
+        except OSError:
+            continue
+    return device_ids
+
+
+def _read_first_sysfs_text(*paths: pathlib.Path) -> str:
+    for path in paths:
+        if value := _read_sysfs_text(path):
+            return value
+    return ""
 
 
 def _sysfs_disk_size(dev: pathlib.Path) -> str | None:
