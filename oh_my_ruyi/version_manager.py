@@ -8,11 +8,13 @@ import json
 import os
 import platform
 import pty
+import queue
 import re
 import select
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import tomllib
 import urllib.request
@@ -97,6 +99,10 @@ class UnmanagedActivationError(VersionManagerError):
 
 class ActiveVersionError(VersionManagerError):
     """Raised when attempting to delete the currently activated version."""
+
+
+class DownloadCancelledError(VersionManagerError):
+    """Raised when a package manager binary download is cancelled."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,25 +444,86 @@ def _open_download(url: str, timeout: float) -> BinaryIO:
     return urllib.request.urlopen(request, timeout=timeout)  # type: ignore[return-value]
 
 
+def _open_download_interruptibly(
+    url: str,
+    timeout: float,
+    open_download: Callable[[str, float], BinaryIO],
+    cancelled: Callable[[], bool] | None,
+) -> BinaryIO:
+    if cancelled is None:
+        return open_download(url, timeout)
+
+    result: queue.Queue[tuple[BinaryIO | None, BaseException | None]] = queue.Queue(
+        maxsize=1
+    )
+
+    def connect() -> None:
+        try:
+            response = open_download(url, timeout)
+        except BaseException as exc:  # noqa: BLE001 - forwarded to the worker
+            result.put((None, exc))
+            return
+        if cancelled():
+            try:
+                response.close()
+            except Exception:  # noqa: BLE001 - cancellation is already complete
+                pass
+            result.put((None, DownloadCancelledError("download cancelled")))
+            return
+        result.put((response, None))
+
+    threading.Thread(target=connect, daemon=True).start()
+    while True:
+        if cancelled():
+            raise DownloadCancelledError("download cancelled")
+        try:
+            response, error = result.get(timeout=0.05)
+        except queue.Empty:
+            continue
+        if error is not None:
+            raise error
+        assert response is not None
+        if cancelled():
+            try:
+                response.close()
+            except Exception:  # noqa: BLE001 - cancellation is already complete
+                pass
+            raise DownloadCancelledError("download cancelled")
+        return response
+
+
 def download_release(
     release: RuyiRelease,
     directory: Path,
     *,
     timeout: float = 30,
     open_download: Callable[[str, float], BinaryIO] = _open_download,
+    download_url: str | None = None,
+    progress: Callable[[int, int], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+    response_changed: Callable[[BinaryIO | None], None] | None = None,
 ) -> Path:
-    """Download a release atomically, trying each URL supplied by the API."""
+    """Download a release atomically from a selected or fallback URL."""
     directory = Path(directory)
     destination = binary_path(release.version, directory)
+    if download_url is not None and download_url not in release.download_urls:
+        raise VersionManagerError("selected download URL is not part of this release")
+
     if destination.is_file() and destination.stat().st_size > 0:
         destination.chmod(0o755)
+        if progress is not None:
+            size = destination.stat().st_size
+            progress(size, size)
         return destination
 
     directory.mkdir(parents=True, exist_ok=True)
     errors: list[str] = []
-    for url in release.download_urls:
+    urls = (download_url,) if download_url is not None else release.download_urls
+    for url in urls:
         temporary: Path | None = None
         try:
+            if cancelled is not None and cancelled():
+                raise DownloadCancelledError("download cancelled")
             with tempfile.NamedTemporaryFile(
                 prefix=f".{destination.name}.",
                 suffix=".download",
@@ -464,16 +531,59 @@ def download_release(
                 delete=False,
             ) as output:
                 temporary = Path(output.name)
-                with open_download(url, timeout) as response:
-                    shutil.copyfileobj(response, output)
+                response = _open_download_interruptibly(
+                    url,
+                    timeout,
+                    open_download,
+                    cancelled,
+                )
+                with response:
+                    if response_changed is not None:
+                        response_changed(response)
+                    try:
+                        if cancelled is not None and cancelled():
+                            raise DownloadCancelledError("download cancelled")
+                        total = -1
+                        headers = getattr(response, "headers", None)
+                        if headers is not None:
+                            content_length = headers.get("Content-Length")
+                            if content_length is not None:
+                                try:
+                                    total = int(content_length)
+                                except (TypeError, ValueError):
+                                    total = -1
+                        downloaded = 0
+                        while True:
+                            if cancelled is not None and cancelled():
+                                raise DownloadCancelledError("download cancelled")
+                            chunk = response.read(128 * 1024)
+                            if not chunk:
+                                break
+                            output.write(chunk)
+                            downloaded += len(chunk)
+                            if progress is not None:
+                                progress(downloaded, total)
+                    finally:
+                        if response_changed is not None:
+                            response_changed(None)
                 output.flush()
                 os.fsync(output.fileno())
+            if cancelled is not None and cancelled():
+                raise DownloadCancelledError("download cancelled")
             if temporary.stat().st_size == 0:
                 raise VersionManagerError("downloaded file is empty")
             temporary.chmod(0o755)
             os.replace(temporary, destination)
             return destination
+        except DownloadCancelledError:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+            raise
         except Exception as exc:  # noqa: BLE001 - try the next release mirror
+            if cancelled is not None and cancelled():
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+                raise DownloadCancelledError("download cancelled") from exc
             errors.append(f"{url}: {type(exc).__name__}: {exc}")
             if temporary is not None:
                 temporary.unlink(missing_ok=True)

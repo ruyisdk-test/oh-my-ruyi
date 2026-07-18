@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -174,6 +176,157 @@ def test_download_release_uses_mirror_and_drops_arch_suffix(tmp_path: Path) -> N
     assert path == tmp_path / "ruyi-0.50.0"
     assert path.read_bytes() == b"standalone ruyi"
     assert os.access(path, os.X_OK)
+    assert not list(tmp_path.glob("*.download"))
+
+
+def test_download_release_uses_only_selected_url_and_reports_progress(
+    tmp_path: Path,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        (
+            "https://primary.test/ruyi-0.50.0.amd64",
+            "https://mirror.test/ruyi-0.50.0.amd64",
+        ),
+    )
+    payload = b"standalone ruyi"
+    calls: list[str] = []
+    progress: list[tuple[int, int]] = []
+
+    class Response(io.BytesIO):
+        headers = {"Content-Length": str(len(payload))}
+
+    def open_download(url: str, _timeout: float):
+        calls.append(url)
+        return Response(payload)
+
+    path = version_manager.download_release(
+        release,
+        tmp_path,
+        open_download=open_download,
+        download_url=release.download_urls[1],
+        progress=lambda downloaded, total: progress.append((downloaded, total)),
+    )
+
+    assert calls == [release.download_urls[1]]
+    assert path.read_bytes() == payload
+    assert progress == [(len(payload), len(payload))]
+
+
+def test_download_release_rejects_url_outside_release(tmp_path: Path) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        ("https://primary.test/ruyi-0.50.0.amd64",),
+    )
+
+    with pytest.raises(
+        version_manager.VersionManagerError,
+        match="selected download URL is not part of this release",
+    ):
+        version_manager.download_release(
+            release,
+            tmp_path,
+            download_url="https://unlisted.test/ruyi-0.50.0.amd64",
+        )
+
+    destination = tmp_path / "ruyi-0.50.0"
+    destination.write_bytes(b"already downloaded")
+    with pytest.raises(
+        version_manager.VersionManagerError,
+        match="selected download URL is not part of this release",
+    ):
+        version_manager.download_release(
+            release,
+            tmp_path,
+            download_url="https://unlisted.test/ruyi-0.50.0.amd64",
+        )
+
+
+def test_download_release_cancellation_removes_partial_file(tmp_path: Path) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        ("https://primary.test/ruyi-0.50.0.amd64",),
+    )
+    checks = 0
+
+    def cancelled() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks >= 3
+
+    with pytest.raises(
+        version_manager.DownloadCancelledError,
+        match="download cancelled",
+    ):
+        version_manager.download_release(
+            release,
+            tmp_path,
+            open_download=lambda _url, _timeout: io.BytesIO(b"partial download"),
+            download_url=release.download_urls[0],
+            cancelled=cancelled,
+        )
+
+    assert not (tmp_path / "ruyi-0.50.0").exists()
+    assert not list(tmp_path.glob("*.download"))
+
+
+def test_download_release_can_cancel_while_connection_is_stalled(
+    tmp_path: Path,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        ("https://primary.test/ruyi-0.50.0.amd64",),
+    )
+    cancel_requested = threading.Event()
+    connect_started = threading.Event()
+    finish_connecting = threading.Event()
+    response_closed = threading.Event()
+
+    class Response(io.BytesIO):
+        def close(self) -> None:
+            response_closed.set()
+            super().close()
+
+    def open_download(_url: str, _timeout: float):
+        connect_started.set()
+        finish_connecting.wait(timeout=2)
+        return Response(b"too late")
+
+    def cancel_after_connect_starts() -> None:
+        assert connect_started.wait(timeout=1)
+        cancel_requested.set()
+
+    canceller = threading.Thread(target=cancel_after_connect_starts)
+    canceller.start()
+    started_at = time.monotonic()
+    try:
+        with pytest.raises(
+            version_manager.DownloadCancelledError,
+            match="download cancelled",
+        ):
+            version_manager.download_release(
+                release,
+                tmp_path,
+                timeout=30,
+                open_download=open_download,
+                download_url=release.download_urls[0],
+                cancelled=cancel_requested.is_set,
+            )
+    finally:
+        finish_connecting.set()
+        canceller.join(timeout=1)
+
+    assert time.monotonic() - started_at < 1
+    assert response_closed.wait(timeout=1)
+    assert not (tmp_path / "ruyi-0.50.0").exists()
     assert not list(tmp_path.glob("*.download"))
 
 

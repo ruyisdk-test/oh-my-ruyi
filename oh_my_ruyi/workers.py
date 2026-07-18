@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import BinaryIO
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
@@ -105,21 +106,62 @@ class VersionCatalogWorker(_BaseWorker):
 class VersionDownloadWorker(_BaseWorker):
     """Download one standalone ruyi binary into the user's version directory."""
 
+    progress = Signal(int, int)
+    cancelled = Signal()
+
     def __init__(
         self,
         release: version_manager.RuyiRelease,
         directory: Path,
+        download_url: str,
     ) -> None:
         super().__init__()
         self._release = release
         self._directory = directory
+        self._download_url = download_url
+        self._cancel_requested = threading.Event()
+        self._response_lock = threading.Lock()
+        self._response: BinaryIO | None = None
+
+    def request_cancel(self) -> None:
+        self._cancel_requested.set()
+        with self._response_lock:
+            response = self._response
+        if response is not None:
+            threading.Thread(
+                target=self._close_response,
+                args=(response,),
+                daemon=True,
+            ).start()
+
+    @staticmethod
+    def _close_response(response: BinaryIO) -> None:
+        try:
+            response.close()
+        except Exception:  # noqa: BLE001 - cancellation must not block the UI
+            pass
+
+    def _set_response(self, response: BinaryIO | None) -> None:
+        with self._response_lock:
+            self._response = response
+        if response is not None and self._cancel_requested.is_set():
+            self._close_response(response)
 
     @Slot()
     def run(self) -> None:
         try:
             self.finished.emit(
-                version_manager.download_release(self._release, self._directory)
+                version_manager.download_release(
+                    self._release,
+                    self._directory,
+                    download_url=self._download_url,
+                    progress=self.progress.emit,
+                    cancelled=self._cancel_requested.is_set,
+                    response_changed=self._set_response,
+                )
             )
+        except version_manager.DownloadCancelledError:
+            self.cancelled.emit()
         except BaseException as exc:  # noqa: BLE001
             self._fail(exc)
 

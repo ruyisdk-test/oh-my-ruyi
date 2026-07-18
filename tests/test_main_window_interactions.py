@@ -18,6 +18,7 @@ from oh_my_ruyi import main_window
 from oh_my_ruyi.main_window import (
     ProvisionMainWindow,
     _StreamingProcessOutput,
+    _VersionDownloadDialog,
 )
 from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
 from oh_my_ruyi.workers import FlashWorker
@@ -329,6 +330,208 @@ def test_local_refresh_rescans_versions_directory(
 
     assert window._pm_installed_table.rowCount() == 1
     assert window._pm_installed_table.item(0, 0).text() == "0.50.0"
+
+
+def test_download_dialog_requires_confirmation_even_for_one_url(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        ("https://example.test/ruyi-0.50.0.amd64",),
+        "x86_64",
+    )
+    window._pm_catalog_releases = [release]
+    window._refresh_pm_versions(select_available_url=release.download_urls[0])
+    started: list[tuple[version_manager.RuyiRelease, str]] = []
+    monkeypatch.setattr(
+        window,
+        "_start_pm_download",
+        lambda selected, url, _dialog: started.append((selected, url)),
+    )
+
+    window._download_selected_pm_version()
+
+    dialog = window._pm_download_dialog
+    assert dialog is not None
+    qtbot.waitUntil(dialog.isVisible, timeout=1000)
+    assert dialog._url_combo.count() == 1
+    assert started == []
+
+    dialog._download_button.click()
+
+    assert started == [(release, release.download_urls[0])]
+    assert dialog._progress.isVisible()
+    assert dialog._progress.value() == 0
+    assert dialog._progress.format() == "Connecting..."
+    assert dialog._cancel_button.isEnabled()
+    dialog.show_failure("test cleanup")
+    dialog.reject()
+
+
+def test_download_dialog_selects_url_and_tracks_success_or_failure(
+    qtbot,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        (
+            "https://primary.test/ruyi-0.50.0.amd64",
+            "https://mirror.test/ruyi-0.50.0.amd64",
+        ),
+        "x86_64",
+    )
+    dialog = _VersionDownloadDialog(release)
+    qtbot.addWidget(dialog)
+    selected: list[str] = []
+    dialog.download_requested.connect(selected.append)
+    dialog.show()
+    dialog._url_combo.setCurrentIndex(1)
+
+    dialog._download_button.click()
+    dialog.update_progress(50, 100)
+
+    assert selected == [release.download_urls[1]]
+    assert dialog._progress.value() == 50
+    assert "50 B / 100 B" in dialog._progress.format()
+
+    dialog.show_failure("mirror unavailable")
+
+    assert dialog.isVisible()
+    assert dialog._status.text() == "Failed: mirror unavailable"
+    assert dialog._status.property("statusKind") == "error"
+    assert dialog._url_combo.isEnabled()
+    assert dialog._download_button.text() == "Retry"
+
+    dialog._download_button.click()
+    dialog.complete()
+
+    assert selected == [release.download_urls[1], release.download_urls[1]]
+    assert not dialog.isVisible()
+
+
+def test_download_dialog_retries_another_url_and_closes_after_success(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        (
+            "https://primary.test/ruyi-0.50.0.amd64",
+            "https://mirror.test/ruyi-0.50.0.amd64",
+        ),
+        "x86_64",
+    )
+    window._pm_catalog_releases = [release]
+    window._refresh_pm_versions(select_available_url=release.download_urls[0])
+    calls: list[str] = []
+
+    def download_release(
+        selected_release,
+        directory,
+        *,
+        download_url,
+        progress,
+        cancelled,
+        response_changed,
+    ):
+        assert selected_release is release
+        assert not cancelled()
+        response_changed(None)
+        calls.append(download_url)
+        progress(32, 64)
+        if download_url == release.download_urls[0]:
+            raise OSError("primary unavailable")
+        directory.mkdir(parents=True, exist_ok=True)
+        binary = directory / "ruyi-0.50.0"
+        binary.write_bytes(_x86_64_elf())
+        return binary
+
+    monkeypatch.setattr(version_manager, "download_release", download_release)
+
+    window._download_selected_pm_version()
+    dialog = window._pm_download_dialog
+    assert dialog is not None
+    dialog._download_button.click()
+
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert dialog.isVisible()
+    assert "primary unavailable" in dialog._status.text()
+    assert dialog._status.property("statusKind") == "error"
+    assert dialog._download_button.text() == "Retry"
+
+    dialog._url_combo.setCurrentIndex(1)
+    dialog._download_button.click()
+
+    qtbot.waitUntil(lambda: window._pm_download_dialog is None, timeout=2000)
+    assert calls == list(release.download_urls)
+    assert dialog._progress.value() == 50
+    assert not dialog.isVisible()
+    assert window._pm_installed_table.rowCount() == 1
+
+
+def test_download_dialog_cancel_requests_worker_and_cleans_up(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    qtbot,
+) -> None:
+    release = version_manager.RuyiRelease(
+        "0.50.0",
+        "stable",
+        "2026-06-23T13:06:10Z",
+        ("https://primary.test/ruyi-0.50.0.amd64",),
+        "x86_64",
+    )
+    window._pm_catalog_releases = [release]
+    window._refresh_pm_versions(select_available_url=release.download_urls[0])
+    entered = threading.Event()
+
+    def download_release(
+        _release,
+        directory,
+        *,
+        download_url,
+        progress,
+        cancelled,
+        response_changed,
+    ):
+        assert download_url == release.download_urls[0]
+        directory.mkdir(parents=True, exist_ok=True)
+        partial = directory / ".ruyi-0.50.0.test.download"
+        partial.write_bytes(b"partial")
+        entered.set()
+        while not cancelled():
+            time.sleep(0.01)
+        partial.unlink()
+        raise version_manager.DownloadCancelledError("download cancelled")
+
+    monkeypatch.setattr(version_manager, "download_release", download_release)
+
+    window._download_selected_pm_version()
+    dialog = window._pm_download_dialog
+    assert dialog is not None
+    dialog._download_button.click()
+    qtbot.waitUntil(entered.is_set, timeout=1000)
+
+    assert dialog._cancel_button.isEnabled()
+    dialog._cancel_button.click()
+
+    assert window._pm_download_dialog is None
+    assert not dialog.isVisible()
+    assert dialog._progress.value() == 0
+    assert dialog._progress.format() == "Cancelling..."
+    assert window._pm_status.text() == "Cancelling download..."
+    qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
+    assert window._pm_status.text() == "Download cancelled."
+    assert not (window._pm_versions_directory / "ruyi-0.50.0").exists()
+    assert not list(window._pm_versions_directory.glob("*.download"))
 
 
 def test_add_url_is_transient_and_survives_refresh(

@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     QEvent,
     QProcess,
     QProcessEnvironment,
+    Signal,
     QTimer,
     Qt,
     QUrl,
@@ -32,6 +33,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -45,6 +48,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -90,6 +94,147 @@ class _VersionTableItem(QTableWidgetItem):
         if isinstance(other, _VersionTableItem):
             return self._sort_key < other._sort_key
         return super().__lt__(other)
+
+
+class _VersionDownloadDialog(QDialog):
+    """Select a release URL, then show that download's progress in place."""
+
+    download_requested = Signal(str)
+    cancel_requested = Signal()
+
+    def __init__(
+        self,
+        release: version_manager.RuyiRelease,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Download ruyi {release.version}")
+        self.setModal(True)
+        self.setMinimumWidth(560)
+        self._downloading = False
+        self._cancelling = False
+
+        layout = QVBoxLayout(self)
+        prompt = QLabel("Select a download URL:")
+        self._url_combo = QComboBox()
+        self._url_combo.setAccessibleName("Ruyi download URL")
+        self._url_combo.addItems(release.download_urls)
+        self._url_combo.currentTextChanged.connect(self._url_combo.setToolTip)
+        self._url_combo.setToolTip(self._url_combo.currentText())
+        prompt.setBuddy(self._url_combo)
+        layout.addWidget(prompt)
+        layout.addWidget(self._url_combo)
+
+        self._progress = QProgressBar()
+        self._progress.setVisible(False)
+        self._status = QLabel("")
+        self._status.setWordWrap(True)
+        layout.addWidget(self._progress)
+        layout.addWidget(self._status)
+
+        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        self._download_button = self._buttons.addButton(
+            "Download",
+            QDialogButtonBox.ButtonRole.AcceptRole,
+        )
+        self._cancel_button = self._buttons.button(
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        self._download_button.clicked.connect(self._request_download)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+    def _request_download(self) -> None:
+        url = self._url_combo.currentText()
+        if self._downloading or not url:
+            return
+        self._downloading = True
+        self._url_combo.setEnabled(False)
+        self._download_button.setEnabled(False)
+        self._cancel_button.setEnabled(True)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setFormat("Connecting...")
+        self._progress.setVisible(True)
+        self._status.setText(f"Downloading from {url}")
+        self._set_status_kind(None)
+        self.download_requested.emit(url)
+
+    def update_progress(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            percent = min(100, downloaded * 100 // total)
+            self._progress.setRange(0, 100)
+            self._progress.setValue(percent)
+            self._progress.setFormat(
+                f"%p% ({self._format_bytes(downloaded)} / {self._format_bytes(total)})"
+            )
+        else:
+            self._progress.setRange(0, 100)
+            self._progress.setValue(0)
+            self._progress.setFormat(f"{self._format_bytes(downloaded)} downloaded")
+
+    def show_failure(self, message: str) -> None:
+        self._downloading = False
+        self._cancelling = False
+        self._url_combo.setEnabled(True)
+        self._download_button.setText("Retry")
+        self._download_button.setEnabled(True)
+        self._cancel_button.setEnabled(True)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setFormat("Download failed")
+        self._status.setText(f"Failed: {message}")
+        self._set_status_kind("error")
+
+    def complete(self) -> None:
+        self._downloading = False
+        self._cancelling = False
+        self.accept()
+
+    def complete_cancellation(self) -> None:
+        self._downloading = False
+        self._cancelling = False
+        super().reject()
+
+    def reject(self) -> None:
+        if self._downloading:
+            self._request_cancel()
+            return
+        super().reject()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        if self._downloading:
+            self._request_cancel()
+            event.accept()
+            return
+        super().closeEvent(event)
+
+    def _request_cancel(self) -> None:
+        if self._cancelling:
+            return
+        self._cancelling = True
+        self._cancel_button.setEnabled(False)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
+        self._progress.setFormat("Cancelling...")
+        self._status.setText("Stopping the download and removing temporary data...")
+        self._set_status_kind(None)
+        self.cancel_requested.emit()
+        super().reject()
+
+    def _set_status_kind(self, kind: str | None) -> None:
+        self._status.setProperty("statusKind", kind or "")
+        self._status.style().unpolish(self._status)
+        self._status.style().polish(self._status)
+
+    @staticmethod
+    def _format_bytes(size: int) -> str:
+        value = float(size)
+        for unit in ("B", "KiB", "MiB", "GiB"):
+            if value < 1024 or unit == "GiB":
+                return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+            value /= 1024
+        raise AssertionError("unreachable")
 
 
 class _StreamingProcessOutput:
@@ -252,6 +397,7 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_worker = None
         self._pm_thread = None
         self._pm_operation = ""
+        self._pm_download_dialog: _VersionDownloadDialog | None = None
         self._pm_first_run_check_pending = auto_start
 
         self._device_choices = {}
@@ -926,7 +1072,35 @@ class ProvisionMainWindow(QMainWindow):
 
     def _download_selected_pm_version(self) -> None:
         release = self._selected_pm_release()
-        if release is None or self._pm_thread is not None:
+        if (
+            release is None
+            or self._pm_thread is not None
+            or self._pm_externally_managed
+            or self._pm_download_dialog is not None
+        ):
+            return
+        dialog = _VersionDownloadDialog(release, self)
+        self._pm_download_dialog = dialog
+        dialog.download_requested.connect(
+            lambda url, r=release, d=dialog: self._start_pm_download(r, url, d)
+        )
+        dialog.cancel_requested.connect(lambda d=dialog: self._cancel_pm_download(d))
+        dialog.finished.connect(
+            lambda _result, d=dialog: self._clear_pm_download_dialog(d)
+        )
+        dialog.open()
+
+    def _start_pm_download(
+        self,
+        release: version_manager.RuyiRelease,
+        download_url: str,
+        dialog: _VersionDownloadDialog,
+    ) -> None:
+        if (
+            dialog is not self._pm_download_dialog
+            or self._pm_thread is not None
+            or self._pm_externally_managed
+        ):
             return
         self._pm_operation = "download"
         self._pm_status.setText(f"Downloading ruyi {release.version}...")
@@ -934,11 +1108,28 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_worker = VersionDownloadWorker(
             release,
             self._pm_versions_directory,
+            download_url,
         )
+        self._pm_worker.progress.connect(dialog.update_progress)
         self._pm_worker.finished.connect(self._on_pm_download_finished)
-        self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_worker.cancelled.connect(self._on_pm_download_cancelled)
+        self._pm_worker.failed.connect(self._on_pm_download_failed)
         self._pm_thread = run_worker_in_thread(self._pm_worker)
         self._refresh_pm_buttons()
+
+    def _clear_pm_download_dialog(self, dialog: _VersionDownloadDialog) -> None:
+        if self._pm_download_dialog is dialog and self._pm_thread is None:
+            self._pm_download_dialog = None
+
+    def _cancel_pm_download(self, dialog: _VersionDownloadDialog) -> None:
+        if dialog is not self._pm_download_dialog:
+            return
+        worker = self._pm_worker
+        if isinstance(worker, VersionDownloadWorker):
+            worker.request_cancel()
+            self._pm_status.setText("Cancelling download...")
+            self._set_status_kind(self._pm_status, None)
+            self._pm_download_dialog = None
 
     def _refresh_pm_local_versions(self) -> None:
         if self._pm_thread is not None:
@@ -1449,6 +1640,29 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_status.setText(f"Downloaded ruyi {version} to {path}.")
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=version)
+        dialog = self._pm_download_dialog
+        if dialog is not None:
+            dialog.complete()
+            self._pm_download_dialog = None
+
+    def _on_pm_download_failed(self, msg: str) -> None:
+        self._cleanup_pm_thread()
+        self._pm_status.setText(f"Failed: {msg}")
+        self._set_status_kind(self._pm_status, "error")
+        self._refresh_pm_versions()
+        dialog = self._pm_download_dialog
+        if dialog is not None:
+            dialog.show_failure(msg)
+
+    def _on_pm_download_cancelled(self) -> None:
+        self._cleanup_pm_thread()
+        self._pm_status.setText("Download cancelled.")
+        self._set_status_kind(self._pm_status, None)
+        self._refresh_pm_versions()
+        dialog = self._pm_download_dialog
+        if dialog is not None:
+            dialog.complete_cancellation()
+            self._pm_download_dialog = None
 
     def _on_pm_activation_finished(
         self,

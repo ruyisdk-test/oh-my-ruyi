@@ -112,6 +112,12 @@ its filename matches `ruyi-<semver version>.<arch>`; refreshing the API catalog
 does not remove these transient entries. Custom URLs are not persisted and are
 downloaded only after selecting the row and pressing `Download`. Select a
 transient entry and press `Remove` to remove it from the current session.
+Downloading always opens a URL-selection dialog, including when only one mirror
+is available. The same dialog shows byte progress after confirmation, closes on
+success, and retains any failure message so another URL can be selected and
+retried. `Cancel` remains available during transfer and aborts the active
+response while removing partial download data. The dialog closes immediately
+so the rest of the application remains usable while cleanup finishes.
 
 Activation may require a sudo password. If `/usr/local/bin/ruyi` already exists
 and is not a symlink managed by Oh My Ruyi, the GUI asks before replacing it.
