@@ -27,7 +27,7 @@ from PySide6.QtCore import (
     Qt,
     QUrl,
 )
-from PySide6.QtGui import QDesktopServices, QPalette, QTextCursor
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -2033,16 +2033,66 @@ class ProvisionMainWindow(QMainWindow):
                 None,
             )
 
-        self._populate_pm_available_table(previous_available_url)
+        latest_release = self._latest_pm_release_for_active(active)
+        latest_downloaded = latest_release is not None and any(
+            item.channel.casefold() == latest_release.channel.casefold()
+            and version_manager.version_sort_key(item.version)
+            == version_manager.version_sort_key(latest_release.version)
+            for item in installed
+        )
+        active_is_latest: bool | None = None
+        if latest_release is not None and active.managed and active.version is not None:
+            active_is_latest = version_manager.version_sort_key(
+                active.version
+            ) == version_manager.version_sort_key(latest_release.version)
+        self._populate_pm_available_table(
+            previous_available_url,
+            highlight_release=(
+                latest_release
+                if latest_release is not None and not latest_downloaded
+                else None
+            ),
+        )
         self._populate_pm_installed_table(
             installed,
             active,
             previous_installed_version,
+            latest_version=(latest_release.version if latest_downloaded else None),
+            latest_channel=(latest_release.channel if latest_downloaded else None),
+            active_is_latest=active_is_latest,
         )
         self._refresh_pm_path_status(active)
         self._refresh_pm_buttons()
 
-    def _populate_pm_available_table(self, selected_url: str | None) -> None:
+    def _latest_pm_release_for_active(
+        self,
+        active: version_manager.ActivationState,
+    ) -> version_manager.RuyiRelease | None:
+        if not active.managed or active.version is None:
+            return None
+        channel = version_manager.version_channel(active.version)
+        if channel not in {"stable", "testing"}:
+            return None
+        candidates = [
+            release
+            for release in self._pm_catalog_releases
+            if release.channel.casefold() == channel
+        ]
+        return max(
+            candidates,
+            key=lambda item: version_manager.version_sort_key(item.version),
+            default=None,
+        )
+
+    def _pm_foreground(self, kind: str) -> QBrush:
+        return QBrush(QColor(self._theme_colors()[kind]))
+
+    def _populate_pm_available_table(
+        self,
+        selected_url: str | None,
+        *,
+        highlight_release: version_manager.RuyiRelease | None = None,
+    ) -> None:
         table = self._pm_available_table
         releases = [*self._pm_catalog_releases, *self._pm_custom_releases]
         table.blockSignals(True)
@@ -2059,6 +2109,8 @@ class ProvisionMainWindow(QMainWindow):
             )
             table.setItem(row, 2, QTableWidgetItem(architecture))
             table.setItem(row, 3, QTableWidgetItem(release.release_date[:10]))
+            if release is highlight_release:
+                self._set_pm_row_foreground(table, row, "success")
         table.setSortingEnabled(True)
         table.sortItems(0, Qt.SortOrder.DescendingOrder)
         table.clearSelection()
@@ -2079,6 +2131,9 @@ class ProvisionMainWindow(QMainWindow):
         installed: tuple[version_manager.InstalledVersion, ...],
         active: version_manager.ActivationState,
         selected_version: str | None,
+        latest_version: str | None = None,
+        latest_channel: str | None = None,
+        active_is_latest: bool | None = None,
     ) -> None:
         table = self._pm_installed_table
         table.blockSignals(True)
@@ -2092,14 +2147,26 @@ class ProvisionMainWindow(QMainWindow):
             is_active = active.managed and active.target == item.path.resolve(
                 strict=False
             )
+            is_latest = (
+                latest_version is not None
+                and latest_channel is not None
+                and item.channel.casefold() == latest_channel.casefold()
+                and version_manager.version_sort_key(item.version)
+                == version_manager.version_sort_key(latest_version)
+            )
             table.setItem(row, 1, QTableWidgetItem(item.channel))
-            table.setItem(row, 2, QTableWidgetItem("Activate" if is_active else ""))
+            activate_item = QTableWidgetItem("Activate" if is_active else "")
+            if is_active and active_is_latest is False:
+                activate_item.setForeground(self._pm_foreground("error"))
+            table.setItem(row, 2, activate_item)
             table.setItem(row, 3, QTableWidgetItem(self._format_file_size(item.size)))
             table.setItem(
                 row,
                 4,
                 QTableWidgetItem("Latest" if item.version in latest_versions else ""),
             )
+            if is_latest and not is_active:
+                self._set_pm_row_foreground(table, row, "success")
         table.setSortingEnabled(True)
         table.sortItems(0, Qt.SortOrder.DescendingOrder)
         table.clearSelection()
@@ -2113,6 +2180,18 @@ class ProvisionMainWindow(QMainWindow):
                     table.selectRow(row)
                     break
         table.blockSignals(False)
+
+    def _set_pm_row_foreground(
+        self,
+        table: QTableWidget,
+        row: int,
+        kind: str,
+    ) -> None:
+        foreground = self._pm_foreground(kind)
+        for column in range(table.columnCount()):
+            item = table.item(row, column)
+            if item is not None:
+                item.setForeground(foreground)
 
     @staticmethod
     def _format_file_size(size: int) -> str:

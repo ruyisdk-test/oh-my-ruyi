@@ -118,6 +118,141 @@ def test_version_tables_separate_available_and_downloaded_versions(
     assert "PATH ready" in window._pm_path_status.text()
 
 
+@pytest.mark.parametrize(
+    ("active_version", "api_channel", "api_latest", "api_older"),
+    [
+        ("0.50.0", "stable", "0.51.0", "0.50.0"),
+        ("0.51.0-alpha.1", "testing", "0.52.0-alpha.1", "0.51.0-alpha.1"),
+    ],
+)
+def test_active_version_color_compares_with_matching_api_channel(
+    window: ProvisionMainWindow,
+    monkeypatch,
+    active_version: str,
+    api_channel: str,
+    api_latest: str,
+    api_older: str,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    active = window._pm_versions_directory / f"ruyi-{active_version}"
+    active.write_bytes(_x86_64_elf())
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(active)
+    monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            api_latest,
+            api_channel,
+            "2026-07-14T10:54:29Z",
+            (f"https://api.example/ruyi-{api_latest}.amd64",),
+            "x86_64",
+        ),
+        version_manager.RuyiRelease(
+            api_older,
+            api_channel,
+            "2026-06-23T13:06:10Z",
+            (f"https://api.example/ruyi-{api_older}.amd64",),
+            "x86_64",
+        ),
+    ]
+
+    window._refresh_pm_versions(select_installed_version=active_version)
+
+    colors = window._theme_colors()
+    row = window._pm_installed_table.currentRow()
+    assert row >= 0
+    activate_item = window._pm_installed_table.item(row, 2)
+    assert activate_item.text() == "Activate"
+    assert activate_item.foreground().color().name() == colors["error"]
+    latest_row = next(
+        row
+        for row in range(window._pm_available_table.rowCount())
+        if window._pm_available_table.item(row, 0).text() == api_latest
+    )
+    assert all(
+        window._pm_available_table.item(latest_row, column).foreground().color().name()
+        == colors["success"]
+        for column in range(window._pm_available_table.columnCount())
+    )
+
+
+def test_active_latest_version_row_uses_default_foreground(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    latest = window._pm_versions_directory / "ruyi-0.51.0"
+    latest.write_bytes(_x86_64_elf())
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(latest)
+    monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.51.0",
+            "stable",
+            "2026-07-14T10:54:29Z",
+            ("https://api.example/ruyi-0.51.0.amd64",),
+            "x86_64",
+        )
+    ]
+
+    window._refresh_pm_versions(select_installed_version="0.51.0")
+
+    row = window._pm_installed_table.currentRow()
+    assert row >= 0
+    assert all(
+        window._pm_installed_table.item(row, column).foreground().style()
+        == Qt.BrushStyle.NoBrush
+        for column in range(window._pm_installed_table.columnCount())
+    )
+
+
+def test_latest_downloaded_version_is_green_only_in_right_table(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window._pm_versions_directory.mkdir(parents=True)
+    active = window._pm_versions_directory / "ruyi-0.50.0"
+    latest = window._pm_versions_directory / "ruyi-0.51.0"
+    active.write_bytes(_x86_64_elf())
+    latest.write_bytes(_x86_64_elf())
+    window._pm_activation_link.parent.mkdir(parents=True)
+    window._pm_activation_link.symlink_to(active)
+    monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
+    window._pm_catalog_releases = [
+        version_manager.RuyiRelease(
+            "0.51.0",
+            "stable",
+            "2026-07-14T10:54:29Z",
+            ("https://api.example/ruyi-0.51.0.amd64",),
+            "x86_64",
+        )
+    ]
+
+    window._refresh_pm_versions(select_installed_version="0.50.0")
+
+    colors = window._theme_colors()
+    left_row = next(
+        row
+        for row in range(window._pm_available_table.rowCount())
+        if window._pm_available_table.item(row, 0).text() == "0.51.0"
+    )
+    right_row = next(
+        row
+        for row in range(window._pm_installed_table.rowCount())
+        if window._pm_installed_table.item(row, 0).text() == "0.51.0"
+    )
+    assert (
+        window._pm_available_table.item(left_row, 0).foreground().color().name()
+        != colors["success"]
+    )
+    assert all(
+        window._pm_installed_table.item(right_row, column).foreground().color().name()
+        == colors["success"]
+        for column in range(window._pm_installed_table.columnCount())
+    )
+
+
 def test_external_system_management_keeps_tables_visible_but_disables_controls(
     qtbot,
     tmp_path,
