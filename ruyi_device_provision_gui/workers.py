@@ -18,7 +18,10 @@ from __future__ import annotations
 import os
 import platform
 import selectors
+import signal
 import subprocess
+import threading
+import time
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
@@ -89,6 +92,7 @@ class FlashWorker(_BaseWorker):
     """Run every flashing strategy in priority order."""
 
     finished = Signal(int)  # type: ignore[assignment]
+    cancelled = Signal()
     yes_no_requested = Signal(str, bool, object)
     password_requested = Signal(str, object)
     process_output = Signal(str)
@@ -107,14 +111,31 @@ class FlashWorker(_BaseWorker):
         self._host_blkdev_map = host_blkdev_map
         self._host_blkdev_fingerprints = host_blkdev_fingerprints
         self._confirmed_mounted_parts = confirmed_mounted_parts
+        self._cancel_requested = threading.Event()
+        self._process_lock = threading.Lock()
+        self._process: subprocess.Popen[bytes] | None = None
 
     @Slot()
     def run(self) -> None:
         try:
             ret = self._run_with_gui_prompts()
-            self.finished.emit(ret)
+            if self._cancel_requested.is_set():
+                self.cancelled.emit()
+            else:
+                self.finished.emit(ret)
         except BaseException as exc:  # noqa: BLE001
-            self._fail(exc)
+            if self._cancel_requested.is_set():
+                self.cancelled.emit()
+            else:
+                self._fail(exc)
+
+    def request_cancel(self) -> None:
+        """Request cancellation and terminate the active command process group."""
+        self._cancel_requested.set()
+        with self._process_lock:
+            proc = self._process
+        if proc is not None and proc.poll() is None:
+            self._signal_process_group(proc, signal.SIGTERM)
 
     def _run_with_gui_prompts(self) -> int:
         if platform.system() == "Windows":
@@ -145,6 +166,8 @@ class FlashWorker(_BaseWorker):
             plugin_api.RuyiHostAPI.call_subprocess_argv = original_call
 
     def _call_subprocess(self, argv: list[str]) -> int:
+        if self._cancel_requested.is_set():
+            return 130
         original_argv = argv
         argv = self._argv_with_gui_progress(argv)
         if argv and argv[0] == "sudo":
@@ -154,6 +177,8 @@ class FlashWorker(_BaseWorker):
             if password is None:
                 self.process_output.emit("sudo password prompt was cancelled.")
                 return 1
+            if self._cancel_requested.is_set():
+                return 130
             argv = ["sudo", "-S", "-p", "", *argv[1:]]
             stdin_data = password + "\n"
         else:
@@ -167,14 +192,55 @@ class FlashWorker(_BaseWorker):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=0,
+            start_new_session=platform.system() != "Windows",
         )
-        if stdin_data is not None:
-            assert proc.stdin is not None
-            proc.stdin.write(stdin_data.encode())
-            proc.stdin.close()
-        assert proc.stdout is not None
-        self._emit_process_output(proc.stdout.fileno())
-        return proc.wait()
+        with self._process_lock:
+            self._process = proc
+        try:
+            if self._cancel_requested.is_set():
+                self._signal_process_group(proc, signal.SIGTERM)
+            if stdin_data is not None:
+                assert proc.stdin is not None
+                try:
+                    proc.stdin.write(stdin_data.encode())
+                    proc.stdin.close()
+                except BrokenPipeError:
+                    pass
+            assert proc.stdout is not None
+            self._emit_process_output(proc.stdout.fileno(), proc)
+            return self._wait_for_process(proc)
+        finally:
+            with self._process_lock:
+                if self._process is proc:
+                    self._process = None
+
+    def _wait_for_process(self, proc: subprocess.Popen[bytes]) -> int:
+        if not self._cancel_requested.is_set():
+            return proc.wait()
+        try:
+            return proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            self._signal_process_group(proc, signal.SIGKILL)
+        try:
+            return proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            return 130
+
+    @staticmethod
+    def _signal_process_group(
+        proc: subprocess.Popen[bytes],
+        sig: signal.Signals,
+    ) -> None:
+        try:
+            if platform.system() == "Windows":
+                proc.send_signal(sig)
+            else:
+                os.killpg(proc.pid, sig)
+        except (OSError, ProcessLookupError):
+            try:
+                proc.send_signal(sig)
+            except (OSError, ProcessLookupError):
+                pass
 
     def _validate_dd_target(self, argv: list[str]) -> None:
         command = argv[1:] if argv and argv[0] == "sudo" else argv
@@ -236,13 +302,29 @@ class FlashWorker(_BaseWorker):
             return argv
         return [*prefix, "dd", *argv[cmd_index + 1 :], "status=progress"]
 
-    def _emit_process_output(self, stdout_fd: int) -> None:
+    def _emit_process_output(
+        self,
+        stdout_fd: int,
+        proc: subprocess.Popen[bytes] | None = None,
+    ) -> None:
         sel = selectors.DefaultSelector()
         sel.register(stdout_fd, selectors.EVENT_READ)
         try:
             pending = ""
+            cancel_started: float | None = None
+            kill_sent_at: float | None = None
             while True:
-                events = sel.select()
+                if proc is not None and self._cancel_requested.is_set():
+                    now = time.monotonic()
+                    if cancel_started is None:
+                        cancel_started = now
+                        self._signal_process_group(proc, signal.SIGTERM)
+                    elif kill_sent_at is None and now - cancel_started >= 1:
+                        kill_sent_at = now
+                        self._signal_process_group(proc, signal.SIGKILL)
+                    elif kill_sent_at is not None and now - kill_sent_at >= 2:
+                        break
+                events = sel.select(0.1 if proc is not None else None)
                 if not events:
                     continue
                 chunk = os.read(stdout_fd, 4096)

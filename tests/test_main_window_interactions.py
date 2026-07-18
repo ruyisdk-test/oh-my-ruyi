@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import threading
 import time
 from types import SimpleNamespace
 
@@ -434,6 +436,80 @@ def test_failed_flash_stays_on_flash_page(window: ProvisionMainWindow) -> None:
     assert not (
         window._steps.item(window.STEP_DONE).flags() & Qt.ItemFlag.ItemIsEnabled
     )
+
+
+def test_interrupt_flash_requests_worker_cancellation(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
+    requests: list[bool] = []
+    monkeypatch.setattr(worker, "request_cancel", lambda: requests.append(True))
+    window._worker = worker
+    window._thread = object()  # type: ignore[assignment]
+    window._set_step(window.STEP_FLASH)
+
+    window._interrupt_flash_btn.click()
+
+    assert requests == [True]
+    assert window._flash_cancel_requested
+    assert window._flash_status.text() == "Interrupting flash..."
+    assert not window._interrupt_flash_btn.isEnabled()
+    window._thread = None
+    window._worker = None
+
+
+def test_interrupted_flash_becomes_recoverable(window: ProvisionMainWindow) -> None:
+    window.state.flash_ret = 0
+    window._flash_cancel_requested = True
+    window._set_step(window.STEP_FLASH)
+
+    window._on_flash_cancelled()
+
+    assert window._current_step == window.STEP_FLASH
+    assert window.state.flash_ret is None
+    assert window._flash_status.text() == "Flash interrupted."
+    assert window._flash_recoverable
+    assert window._flash_recovery_row.isVisibleTo(window)
+
+
+@pytest.mark.skipif(platform.system() == "Windows", reason="native Windows flashing is unsupported")
+@pytest.mark.parametrize("command", ["dd", "fastboot"])
+def test_flash_worker_interrupts_active_command(
+    monkeypatch,
+    tmp_path,
+    command: str,
+) -> None:
+    executable = tmp_path / command
+    executable.write_text("#!/bin/sh\n/bin/sleep 30\n")
+    executable.chmod(0o755)
+    monkeypatch.setenv("PATH", os.fspath(tmp_path))
+    target = tmp_path / "target.img"
+    target.touch()
+    worker = FlashWorker(
+        None,
+        None,
+        {"disk": os.fspath(target)},
+        {"disk": "reviewed-device"},
+        set(),
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(host_storage, "device_fingerprint", lambda _path: "reviewed-device")
+    monkeypatch.setattr(host_storage, "is_disk_or_child_mounted", lambda _path: False)
+    argv = ["dd", f"of={target}"] if command == "dd" else ["fastboot", "flash"]
+    result: list[int] = []
+    thread = threading.Thread(target=lambda: result.append(worker._call_subprocess(argv)))
+
+    thread.start()
+    deadline = time.monotonic() + 2
+    while worker._process is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert worker._process is not None
+
+    worker.request_cancel()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert result and result[0] != 0
 
 
 def test_unflashed_done_back_returns_to_fresh_review(

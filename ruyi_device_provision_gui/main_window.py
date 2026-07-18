@@ -114,6 +114,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_cancelled = False
         self._download_recoverable = False
         self._flash_recoverable = False
+        self._flash_cancel_requested = False
         self._applying_styles = False
         self._current_step = self.STEP_WELCOME
         self._download_ok = False
@@ -375,6 +376,11 @@ class ProvisionMainWindow(QMainWindow):
         )
 
         self._flash_status = QLabel("Flash has not started.")
+        self._interrupt_flash_btn = QPushButton("Interrupt flash")
+        self._interrupt_flash_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserStop)
+        )
+        self._interrupt_flash_btn.clicked.connect(self._interrupt_flash)
         self._retry_flash_btn = QPushButton("Retry flash")
         self._retry_flash_btn.clicked.connect(self._retry_flash)
         self._review_flash_btn = QPushButton("Review settings")
@@ -390,7 +396,12 @@ class ProvisionMainWindow(QMainWindow):
         self._flash_log = self._make_log_view()
         self._add_page(
             "Flash device",
-            [self._flash_status, self._flash_recovery_row, self._flash_log],
+            [
+                self._flash_status,
+                self._interrupt_flash_btn,
+                self._flash_recovery_row,
+                self._flash_log,
+            ],
         )
 
         self._done_label = QLabel("")
@@ -610,6 +621,7 @@ class ProvisionMainWindow(QMainWindow):
             self._set_step(self.STEP_STORAGE)
             return
         self._flash_recoverable = False
+        self._flash_cancel_requested = False
         self._flash_log.clear()
         self._flash_status.setText("Flashing the device...")
         self._set_step(self.STEP_FLASH)
@@ -625,6 +637,7 @@ class ProvisionMainWindow(QMainWindow):
             },
         )
         self._worker.finished.connect(self._on_flash_finished)
+        self._worker.cancelled.connect(self._on_flash_cancelled)
         self._worker.failed.connect(self._on_worker_failed)
         self._worker.yes_no_requested.connect(self._on_flash_yes_no_requested, Qt.ConnectionType.BlockingQueuedConnection)
         self._worker.password_requested.connect(self._on_flash_password_requested, Qt.ConnectionType.BlockingQueuedConnection)
@@ -896,6 +909,7 @@ class ProvisionMainWindow(QMainWindow):
             self._advance_after_download()
 
     def _on_flash_finished(self, ret: int) -> None:
+        self._flash_cancel_requested = False
         self.state.flash_ret = ret
         self._flash_recoverable = ret != 0
         self._flash_status.setText("Flash complete." if ret == 0 else f"Flash failed (exit code {ret}).")
@@ -906,11 +920,20 @@ class ProvisionMainWindow(QMainWindow):
         else:
             self._refresh_buttons()
 
+    def _on_flash_cancelled(self) -> None:
+        self._flash_cancel_requested = False
+        self.state.flash_ret = None
+        self._flash_recoverable = True
+        self._flash_status.setText("Flash interrupted.")
+        self._cleanup_thread()
+        self._refresh_buttons()
+
     def _on_worker_failed(self, msg: str) -> None:
         QMessageBox.critical(self, "Operation failed", msg)
         if self._current_step == self.STEP_DOWNLOAD:
             self._download_status.setText(f"Failed: {msg}")
         elif self._current_step == self.STEP_FLASH:
+            self._flash_cancel_requested = False
             self._flash_status.setText(f"Failed: {msg}")
             self._flash_recoverable = True
         elif self._current_step == self.STEP_DEVICE:
@@ -1142,10 +1165,28 @@ class ProvisionMainWindow(QMainWindow):
             and self.state.prepared is not None
         )
         flash_recoverable = self._current_step == self.STEP_FLASH and self._flash_recoverable and not busy
+        flash_running = (
+            self._current_step == self.STEP_FLASH
+            and isinstance(self._worker, FlashWorker)
+            and self._thread is not None
+        )
+        self._interrupt_flash_btn.setVisible(flash_running)
+        self._interrupt_flash_btn.setEnabled(
+            flash_running and not self._flash_cancel_requested
+        )
         self._flash_recovery_row.setVisible(flash_recoverable)
         self._retry_flash_btn.setEnabled(self.state.prepared is not None)
         self._review_flash_btn.setEnabled(self.state.prepared is not None)
         self._restart_flash_btn.setEnabled(self.state.mr is not None)
+
+    def _interrupt_flash(self) -> None:
+        worker = self._worker
+        if not isinstance(worker, FlashWorker) or self._flash_cancel_requested:
+            return
+        self._flash_cancel_requested = True
+        self._flash_status.setText("Interrupting flash...")
+        worker.request_cancel()
+        self._refresh_buttons()
 
     def _retry_flash(self) -> None:
         if self.state.prepared is None or self._is_busy():
