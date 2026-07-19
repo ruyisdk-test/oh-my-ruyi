@@ -1,5 +1,7 @@
 # oh-my-ruyi
 
+(如意宝 in Chinese)
+
 A PySide6 management frontend for `ruyi`, with package manager version control
 and device provisioning in one tabbed application.
 
@@ -11,7 +13,15 @@ provision strategy plugins.
 ## Features
 
 - Three top-level tabs for version management, repository management, and device
-  provisioning. Repository management is reserved for future work.
+  provisioning.
+- Repository management shows preset repositories beside the user-local
+  configuration in TOML order. The built-in `ruyisdk` entry is fixed at the top;
+  its remote, local path, branch, and disabled state are managed through ruyi's
+  imported configuration API.
+- Additional repositories are added from presets, start disabled with priority 10,
+  and can be activated through `ruyi update --repo <id>`. Update output is shown in
+  a cancellable dialog. TOML is read for display only; the GUI never writes it
+  directly. Repository IDs and names remain fixed to their preset definitions.
 - Stable and testing package manager release discovery with API fallback.
 - Per-user standalone ruyi downloads and `/usr/local/bin/ruyi` activation.
 - Graphical first-install telemetry choices using ruyi's native OOBE flow.
@@ -250,6 +260,10 @@ oh_my_ruyi/
   host_storage.py    # Linux/WSL2/macOS disk discovery and mount checks
   main_window.py     # single-window Qt UI
   qt_logger.py       # RuyiLogger subclass that emits Qt signals
+  repo_presets.py    # ordered repository and source presets
+  repo_update_child.py  # interruptible imported-ruyi repository update
+  repo_manager.py    # repo model and imported ruyi config operations
+  repo_manager_tab.py # repository management Qt tab
   ruyi_facade.py     # Qt-free facade over ruyi internals
   state.py           # GUI flow state
   version_manager.py # release discovery, downloads, activation, telemetry
@@ -262,5 +276,6 @@ tests/
 
 ## Status
 
-Alpha. Version management and device provisioning are implemented. The
-repository management tab is currently empty.
+Alpha. Version management, repository management, and device provisioning are
+implemented. Repository source edits that cannot be expressed by the installed
+ruyi API are intentionally unavailable.

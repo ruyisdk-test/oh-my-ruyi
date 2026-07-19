@@ -15,7 +15,7 @@ import signal
 import shutil
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 from PySide6.QtCore import (
     QDir,
@@ -61,8 +61,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import host_storage, ruyi_facade, version_manager
+from . import host_storage, repo_manager, ruyi_facade, version_manager
 from .qt_logger import LogEmitter, QtRuyiLogger
+from .repo_manager_tab import RepoManagementTab
 from .state import WizardState
 from .workers import (
     FlashWorker,
@@ -337,6 +338,8 @@ class ProvisionMainWindow(QMainWindow):
         activation_link: Path | None = None,
         telemetry_installation: Path | None = None,
         system_ruyi_config: Path | None = None,
+        repo_config_path: Path | None = None,
+        config_loader: Callable[[], object] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -385,6 +388,12 @@ class ProvisionMainWindow(QMainWindow):
             version_manager.DEFAULT_SYSTEM_CONFIG
             if system_ruyi_config is None
             else Path(system_ruyi_config)
+        )
+        self._config_loader = config_loader
+        self._repo_config_path = (
+            repo_manager.user_config_path()
+            if repo_config_path is None
+            else Path(repo_config_path)
         )
         self._pm_config_externally_managed = bool(
             getattr(config, "is_installation_externally_managed", False)
@@ -448,6 +457,16 @@ class ProvisionMainWindow(QMainWindow):
                 self,
                 "Operation in progress",
                 "A package manager version operation is still running. Wait for it to finish before closing this window.",
+            )
+            event.ignore()
+            return
+
+        if self._repo_manager_tab.is_busy:
+            QMessageBox.warning(
+                self,
+                "Repository operation in progress",
+                "A repository operation is still running. Cancel or finish it before "
+                "closing this window.",
             )
             event.ignore()
             return
@@ -523,13 +542,81 @@ class ProvisionMainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._tabs.setObjectName("featureTabs")
         self._version_manager_tab = self._build_version_manager_tab()
-        self._repo_manager_tab = QWidget()
+        self._repo_manager_tab = RepoManagementTab(
+            config_path=self._repo_config_path,
+        )
+        self._repo_manager_tab.configuration_changed.connect(
+            self._on_repo_configuration_changed
+        )
+        self._repo_manager_tab.repository_updated.connect(self._on_managed_repo_updated)
+        self._repo_manager_tab.busy_changed.connect(self._on_repo_manager_busy_changed)
         self._provision_tab = provision_tab
         self._tabs.addTab(self._version_manager_tab, "Version Management")
         self._tabs.addTab(self._repo_manager_tab, "Repo Management")
         self._tabs.addTab(self._provision_tab, "Device Provision")
         self.setCentralWidget(self._tabs)
         self._apply_styles()
+
+    def _on_repo_configuration_changed(self, repo_id: str) -> None:
+        if self._config_loader is not None:
+            try:
+                self.state.config = self._config_loader()
+            except BaseException as exc:  # noqa: BLE001
+                self._repo_manager_tab._set_status(
+                    f"Repository changed, but configuration reload failed: {exc}",
+                    "error",
+                )
+                return
+        if repo_id == repo_manager.DEFAULT_REPO_ID:
+            self._reset_provision_for_repo_change()
+        self._refresh_buttons()
+
+    def _on_managed_repo_updated(self, repo_id: str) -> None:
+        if repo_id != repo_manager.DEFAULT_REPO_ID or self._thread is not None:
+            return
+        self._reset_provision_for_repo_change()
+        if self._config_loader is not None:
+            try:
+                self.state.config = self._config_loader()
+            except BaseException as exc:  # noqa: BLE001
+                self._repo_manager_tab._set_status(
+                    f"Repository updated, but configuration reload failed: {exc}",
+                    "error",
+                )
+                return
+        self._start_repo_init()
+
+    def _reset_provision_for_repo_change(self) -> None:
+        self.state.mr = None
+        self.state.device = None
+        self.state.variant = None
+        self.state.combo = None
+        self.state.pkg_atoms = []
+        self.state.prepared = None
+        self.state.host_blkdev_map = {}
+        self.state.host_blkdev_fingerprints = {}
+        self.state.flash_ret = None
+        self.state.postinst_msg = None
+        self._versions_visited = False
+        self._download_ok = False
+        self._download_recoverable = False
+        self._flash_recoverable = False
+        self._device_list.clear()
+        self._welcome_status.setText(
+            "The default repository configuration changed. Update it before "
+            "provisioning a device."
+        )
+        self._device_status.setText(
+            "The default repository configuration changed. Update metadata to "
+            "reload devices."
+        )
+        self._set_status_kind(self._device_status, "warning")
+        self._refresh_summary()
+        self._set_step(self.STEP_WELCOME)
+
+    def _on_repo_manager_busy_changed(self, _busy: bool) -> None:
+        self._refresh_buttons()
+        self._refresh_pm_buttons()
 
     def _build_version_manager_tab(self) -> QWidget:
         tab = QWidget()
@@ -1057,7 +1144,7 @@ class ProvisionMainWindow(QMainWindow):
     # -------------------------------------------------------------- actions
 
     def _refresh_pm_catalog(self) -> None:
-        if self._pm_thread is not None:
+        if self._pm_thread is not None or self._repo_manager_tab.is_busy:
             return
         self._pm_operation = "refresh"
         self._pm_status.setText("Checking the latest ruyi releases...")
@@ -1343,13 +1430,18 @@ class ProvisionMainWindow(QMainWindow):
         return QDesktopServices.openUrl(QUrl.fromLocalFile(os.fspath(path.parent)))
 
     def _start_repo_init(self) -> None:
+        if self._repo_manager_tab.is_busy:
+            return
         self._next_btn.setEnabled(False)
         self._worker = RepoInitWorker(self.state.config)
         self._worker.finished.connect(self._on_repo_ready)
         self._worker.failed.connect(self._on_worker_failed)
         self._thread = run_worker_in_thread(self._worker)
+        self._refresh_buttons()
 
     def _start_repo_sync(self) -> None:
+        if self._repo_manager_tab.is_busy:
+            return
         assert self.state.mr is not None
         self._device_status.setText("Updating metadata repositories...")
         self._device_list.clear()
@@ -2251,7 +2343,16 @@ class ProvisionMainWindow(QMainWindow):
             self._set_status_kind(self._pm_path_status, "error")
 
     def _refresh_pm_buttons(self) -> None:
-        busy = self._pm_thread is not None
+        repo_tab = getattr(self, "_repo_manager_tab", None)
+        if repo_tab is not None:
+            repo_tab.set_external_busy(
+                self._thread is not None
+                or self._pm_thread is not None
+                or self._download_process is not None
+                or self._fastboot_process is not None
+            )
+        repo_busy = bool(repo_tab is not None and self._repo_manager_tab.is_busy)
+        busy = self._pm_thread is not None or repo_busy
         controls_enabled = not busy and not self._pm_externally_managed
         release = self._selected_pm_release()
         installed = self._selected_pm_installed_version()
@@ -2470,6 +2571,14 @@ class ProvisionMainWindow(QMainWindow):
         self._summary_storage.setText(f"Storage: {storage}")
 
     def _refresh_buttons(self) -> None:
+        repo_tab = getattr(self, "_repo_manager_tab", None)
+        if repo_tab is not None:
+            repo_tab.set_external_busy(
+                self._thread is not None
+                or self._pm_thread is not None
+                or self._download_process is not None
+                or self._fastboot_process is not None
+            )
         busy = self._is_busy()
         self._back_btn.setEnabled(
             not busy
@@ -2552,10 +2661,12 @@ class ProvisionMainWindow(QMainWindow):
             self._set_step(self.STEP_REVIEW)
 
     def _is_busy(self) -> bool:
+        repo_tab = getattr(self, "_repo_manager_tab", None)
         return (
             self._thread is not None
             or self._download_process is not None
             or self._fastboot_process is not None
+            or bool(repo_tab is not None and repo_tab.is_busy)
         )
 
     def _activate_current_step(self, _item=None) -> None:

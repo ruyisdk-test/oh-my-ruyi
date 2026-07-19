@@ -22,6 +22,10 @@ def test_package_imports_cleanly() -> None:
         host_storage,
         main_window,
         qt_logger,
+        repo_manager,
+        repo_manager_tab,
+        repo_presets,
+        repo_update_child,
         ruyi_facade,
         download_child,
         state,
@@ -79,7 +83,7 @@ def test_facade_exposes_expected_symbols() -> None:
         assert hasattr(ruyi_facade, name), f"ruyi_facade missing {name}"
 
 
-def test_main_window_constructs(qtbot) -> None:
+def test_main_window_constructs(qtbot, tmp_path) -> None:
     """The main window can be constructed with a stub config."""
     from PySide6.QtWidgets import QApplication
     from ruyi.config import GlobalConfig
@@ -94,7 +98,13 @@ def test_main_window_constructs(qtbot) -> None:
     logger = QtRuyiLogger(gm, emitter)
     config = GlobalConfig(gm, logger)
 
-    window = ProvisionMainWindow(config, logger, emitter, auto_start=False)
+    window = ProvisionMainWindow(
+        config,
+        logger,
+        emitter,
+        auto_start=False,
+        repo_config_path=tmp_path / "ruyi" / "config.toml",
+    )
     assert window.windowTitle() == "Ohh My Ruyi"
     assert window._steps.count() == len(window.STEP_TITLES)
     assert window._stack.count() == len(window.STEP_TITLES)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Optional
+from typing import Callable, Optional
 
 from PySide6.QtWidgets import QApplication
 
@@ -25,12 +25,23 @@ def _make_global_mode() -> EnvGlobalModeProvider:
     return EnvGlobalModeProvider(os.environ, list(sys.argv))
 
 
-def build_config() -> tuple[GlobalConfig, QtRuyiLogger, LogEmitter]:
+def _build_config_with_loader() -> tuple[
+    GlobalConfig,
+    QtRuyiLogger,
+    LogEmitter,
+    Callable[[], GlobalConfig],
+]:
     """Construct the ruyi ``GlobalConfig`` wired to a :class:`QtRuyiLogger`."""
     gm = _make_global_mode()
     emitter = LogEmitter()
     logger = QtRuyiLogger(gm, emitter)
     config = GlobalConfig.load_from_config(gm, logger)
+    return config, logger, emitter, lambda: GlobalConfig.load_from_config(gm, logger)
+
+
+def build_config() -> tuple[GlobalConfig, QtRuyiLogger, LogEmitter]:
+    """Construct the public application configuration tuple."""
+    config, logger, emitter, _loader = _build_config_with_loader()
     return config, logger, emitter
 
 
@@ -41,8 +52,13 @@ def run(argv: Optional[list[str]] = None) -> int:
     app = QApplication(argv)
     app.setApplicationName("oh-my-ruyi")
 
-    config, _logger, emitter = build_config()
-    window = ProvisionMainWindow(config, _logger, emitter)
+    config, _logger, emitter, config_loader = _build_config_with_loader()
+    window = ProvisionMainWindow(
+        config,
+        _logger,
+        emitter,
+        config_loader=config_loader,
+    )
     window.show()
     return app.exec()
 

@@ -50,6 +50,7 @@ def window(qtbot, tmp_path) -> ProvisionMainWindow:
         activation_link=tmp_path / "bin" / "ruyi",
         telemetry_installation=telemetry_installation,
         system_ruyi_config=tmp_path / "etc" / "ruyi" / "config.toml",
+        repo_config_path=tmp_path / "config" / "ruyi" / "config.toml",
     )
     qtbot.addWidget(result)
     return result
@@ -63,10 +64,30 @@ def test_feature_tabs_are_in_required_order(window: ProvisionMainWindow) -> None
     ]
     assert window._tabs.currentIndex() == 0
     assert window._tabs.widget(2) is window._provision_tab
-    assert window._repo_manager_tab.layout() is None
+    assert window._repo_manager_tab.layout() is not None
+    assert window._repo_manager_tab.preset_table.rowCount() == 1
+    assert window._repo_manager_tab.configured_table.rowCount() == 1
     assert window._stack.widget(window.STEP_WELCOME).accessibleName() == (
         "RuyiSDK Device Provisioning"
     )
+
+
+def test_repo_init_disables_repo_management(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    thread = object()
+    monkeypatch.setattr(main_window, "run_worker_in_thread", lambda _worker: thread)
+    window._repo_manager_tab.preset_table.selectRow(0)
+    assert window._repo_manager_tab.add_button.isEnabled()
+
+    window._start_repo_init()
+
+    assert window._thread is thread
+    assert window._repo_manager_tab._external_busy
+    assert not window._repo_manager_tab.preset_table.isEnabled()
+    window._thread = None
+    window._worker = None
 
 
 def test_version_tables_separate_available_and_downloaded_versions(
@@ -277,6 +298,7 @@ def test_external_system_management_keeps_tables_visible_but_disables_controls(
         activation_link=tmp_path / "bin" / "ruyi",
         telemetry_installation=telemetry_installation,
         system_ruyi_config=system_config,
+        repo_config_path=tmp_path / "config" / "ruyi" / "config.toml",
     )
     qtbot.addWidget(window)
     window._pm_catalog_releases = [
@@ -332,6 +354,7 @@ def test_loaded_ruyi_config_keeps_external_management_locked(
         activation_link=tmp_path / "bin" / "ruyi",
         telemetry_installation=tmp_path / "installation.json",
         system_ruyi_config=system_config,
+        repo_config_path=tmp_path / "config" / "ruyi" / "config.toml",
     )
     qtbot.addWidget(window)
 

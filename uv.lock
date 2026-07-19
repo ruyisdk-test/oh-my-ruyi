@@ -432,7 +432,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "pyside6", specifier = ">=6.6" },
-    { name = "ruyi", specifier = ">=0.51.0a20260616,<0.53" },
+    { name = "ruyi", specifier = ">=0.52.0a20260714,<0.53" },
 ]
 
 [package.metadata.requires-dev]
@@ -732,7 +732,7 @@ wheels = [
 
 [[package]]
 name = "ruyi"
-version = "0.51.0a20260616"
+version = "0.52.0a20260714"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "argcomplete" },
@@ -750,9 +750,9 @@ dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/7e/117790e8e2cc964a711e0519a2ffe5af156d45b494f56b0dd4be1f56e89a/ruyi-0.51.0a20260616.tar.gz", hash = "sha256:a8ad86cf04bd895a4383430176f117b0558ce47055396cc6e6ba9070314ca138", size = 192960, upload-time = "2026-06-16T13:23:25.885Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/87/6cc9fce572868f0a7b90fa591fda59e3c37b67efac7f89c0aad82d83a589/ruyi-0.52.0a20260714.tar.gz", hash = "sha256:336b22fcb451ebf2d6a87d6bb2abcd0dfe0db34a7440bb635ec0ed2c570afc2e", size = 191565, upload-time = "2026-07-14T10:54:37.334Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/99/e116a4cdf181acb31721aaf7ffac662ac12541b0e328194383983f94cc2b/ruyi-0.51.0a20260616-py3-none-any.whl", hash = "sha256:b6dbfcd3c59c2299b25965c15514334088ad0a32ea8afe3b74f2859180a7e195", size = 233776, upload-time = "2026-06-16T13:23:24.45Z" },
+    { url = "https://files.pythonhosted.org/packages/ab/8c/6e0e81e567588203f491d2b8ccbdd5c2f87b8bb8d3a0fdf774ae14df8145/ruyi-0.52.0a20260714-py3-none-any.whl", hash = "sha256:a42674ad6660c106e196124b45de0de1474e2f7e88d13b196365608f79613f3d", size = 232026, upload-time = "2026-07-14T10:54:35.882Z" },
 ]
 
 [[package]]
