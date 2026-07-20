@@ -109,7 +109,7 @@ def test_update_dialog_news_actions_disable_together(qtbot) -> None:
     read_requests: list[None] = []
     dialog.read_news_requested.connect(lambda: read_requests.append(None))
 
-    dialog.complete(True, "Updated ruyisdk.")
+    dialog.complete(True)
     assert dialog.read_news_button.isEnabled()
     assert dialog.mark_all_news_read_button.isEnabled()
 
@@ -118,6 +118,40 @@ def test_update_dialog_news_actions_disable_together(qtbot) -> None:
     assert read_requests == [None]
     assert not dialog.read_news_button.isEnabled()
     assert not dialog.mark_all_news_read_button.isEnabled()
+
+
+def test_update_dialog_renders_ansi_without_control_text(qtbot) -> None:
+    _app = QApplication.instance() or QApplication([])
+    dialog = _RepoUpdateDialog("ruyisdk")
+    qtbot.addWidget(dialog)
+
+    dialog.append_output("\x1b[1;31mfatal error:\x1b[0m failed\n", final=True)
+
+    assert dialog.log.toPlainText().strip() == "fatal error: failed"
+    assert "font-weight" in dialog.log.toHtml()
+    assert "color:" in dialog.log.toHtml()
+    assert "\x1b" not in dialog.log.toPlainText()
+
+
+def test_update_failure_keeps_detail_out_of_status_label(qtbot, tmp_path) -> None:
+    _app = QApplication.instance() or QApplication([])
+    tab = RepoManagementTab(config_path=tmp_path / "ruyi" / "config.toml")
+    dialog = _RepoUpdateDialog("ruyisdk")
+    qtbot.addWidget(tab)
+    qtbot.addWidget(dialog)
+    tab._update_dialog = dialog
+    tab._updating_repo_id = "ruyisdk"
+
+    tab._finish_update(
+        False,
+        "Repository update failed (exit code 1).",
+        details="fatal error: remote unavailable",
+    )
+
+    assert tab.status.text() == "Repository update failed (exit code 1)."
+    assert "remote unavailable" not in tab.status.text()
+    assert tab.status.toolTip() == ""
+    assert "remote unavailable" in dialog.log.toPlainText()
 
 
 def test_source_dialog_locks_presets_and_enables_custom(qtbot) -> None:

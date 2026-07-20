@@ -17,7 +17,6 @@ from oh_my_ruyi import host_storage, ruyi_facade, version_manager, workers
 from oh_my_ruyi import main_window
 from oh_my_ruyi.main_window import (
     ProvisionMainWindow,
-    _StreamingProcessOutput,
     _VersionDownloadDialog,
 )
 from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
@@ -129,6 +128,23 @@ def test_disabled_default_repo_stays_on_ready_page(
         "Enable the ruyisdk repository in Repo Management to load device metadata."
     )
     assert window._welcome_status.property("statusKind") == "warning"
+
+
+def test_empty_device_repo_uses_detail_view_not_status_label(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window.state.mr = object()  # type: ignore[assignment]
+    monkeypatch.setattr(ruyi_facade, "list_devices", lambda _mr: [])
+    monkeypatch.setattr(ruyi_facade, "list_entity_types", lambda _mr: ["package"])
+
+    window._populate_devices()
+
+    assert window._device_status.text() == (
+        "No device provisioning data is available. See repository details."
+    )
+    assert "Available entity types: package" not in window._device_status.text()
+    assert "Available entity types: package" in window._device_details.toPlainText()
 
 
 def test_provision_update_waits_for_device_tab_switch(
@@ -616,7 +632,10 @@ def test_download_dialog_selects_url_and_tracks_success_or_failure(
     dialog.show_failure("mirror unavailable")
 
     assert dialog.isVisible()
-    assert dialog._status.text() == "Failed: mirror unavailable"
+    assert dialog._status.text() == "Download failed. See output below."
+    assert "mirror unavailable" not in dialog._status.text()
+    assert dialog._status.toolTip() == ""
+    assert "mirror unavailable" in dialog._output.toPlainText()
     assert dialog._status.property("statusKind") == "error"
     assert dialog._url_combo.isEnabled()
     assert dialog._download_button.text() == "Retry"
@@ -677,7 +696,8 @@ def test_download_dialog_retries_another_url_and_closes_after_success(
 
     qtbot.waitUntil(lambda: window._pm_thread is None, timeout=2000)
     assert dialog.isVisible()
-    assert "primary unavailable" in dialog._status.text()
+    assert "primary unavailable" not in dialog._status.text()
+    assert "primary unavailable" in dialog._output.toPlainText()
     assert dialog._status.property("statusKind") == "error"
     assert dialog._download_button.text() == "Retry"
 
@@ -1133,6 +1153,25 @@ def test_first_install_runs_selected_mode_and_telemetry_status(
     assert window._pm_status.text() == "Telemetry mode: local"
 
 
+def test_pm_failure_uses_error_dialog_without_output_panel(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    errors: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        main_window.QMessageBox,
+        "critical",
+        lambda _parent, title, message: errors.append((title, message)),
+    )
+    window._pm_operation = "activate"
+
+    window._on_pm_worker_failed("activation failed")
+
+    assert errors == [("Operation failed", "activation failed")]
+    assert window._pm_status.text() == "Operation failed. See the error dialog."
+    assert not hasattr(window, "_pm_output")
+
+
 def _contrast_ratio(foreground: str, background: str) -> float:
     def luminance(color_name: str) -> float:
         color = QColor(color_name)
@@ -1351,39 +1390,11 @@ def test_failed_download_start_releases_busy_state(window: ProvisionMainWindow) 
     assert window._download_recovery_row.isVisibleTo(window)
 
 
-def test_curl_progress_handles_carriage_returns_across_chunks() -> None:
-    output = _StreamingProcessOutput()
-
-    first = output.feed(b"  % Total    % Received\n  0     0\r")
-    second = output.feed(b"100  4096  100  4096\n")
-
-    assert first == [
-        ("line", "  % Total    % Received"),
-        ("progress", "  0     0"),
-    ]
-    assert second == [("line", "100  4096  100  4096")]
-
-
-def test_wget_progress_handles_split_utf8_and_final_line() -> None:
-    output = _StreamingProcessOutput()
-    encoded = "image.iso  25% [=>] 下载中".encode()
-
-    first = output.feed(encoded[:-1])
-    second = output.feed(encoded[-1:] + b"\rimage.iso 100% [==>] saved")
-    final = output.feed(b"", final=True)
-
-    assert first == [("progress", "image.iso  25% [=>] 下载")]
-    assert second == [("progress", "image.iso 100% [==>] saved")]
-    assert final == [("line", "image.iso 100% [==>] saved")]
-
-
 def test_download_log_replaces_progress_line(window: ProvisionMainWindow) -> None:
-    window._download_output = _StreamingProcessOutput()
-    window._download_progress_line_active = False
     window._download_log.clear()
 
-    window._consume_download_output(b"Connecting...\nfile 10%\r")
-    window._consume_download_output(b"file 100%\nSaved\n", final=True)
+    window._download_log.feed_bytes(b"Connecting...\nfile 10%\r")
+    window._download_log.feed_bytes(b"file 100%\nSaved\n", final=True)
 
     assert window._download_log.toPlainText().splitlines() == [
         "Connecting...",
@@ -1411,7 +1422,9 @@ def test_fastboot_check_runs_without_blocking_ui(
     assert window._fastboot_process is not None
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=2000)
     assert window._fastboot_ok
-    assert "SERIAL" in window._fastboot_status.text()
+    assert window._fastboot_status.text() == "Fastboot device check completed."
+    assert "SERIAL" not in window._fastboot_status.text()
+    assert "SERIAL" in window._fastboot_log.toPlainText()
 
 
 def test_fastboot_check_reports_missing_command(
@@ -1467,7 +1480,8 @@ def test_fastboot_check_accepts_nonempty_stderr_without_parsing(
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
     assert window._fastboot_ok
-    assert "device output" in window._fastboot_status.text()
+    assert "device output" not in window._fastboot_status.text()
+    assert "device output" in window._fastboot_log.toPlainText()
 
 
 def test_fastboot_check_accepts_device_record_on_stderr(
@@ -1485,7 +1499,8 @@ def test_fastboot_check_accepts_device_record_on_stderr(
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
     assert window._fastboot_ok
-    assert "SERIAL" in window._fastboot_status.text()
+    assert "SERIAL" not in window._fastboot_status.text()
+    assert "SERIAL" in window._fastboot_log.toPlainText()
 
 
 def test_fastboot_check_accepts_dfu_download_output(
@@ -1503,7 +1518,8 @@ def test_fastboot_check_accepts_dfu_download_output(
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
     assert window._fastboot_ok
-    assert "dfu-device       DFU download" in window._fastboot_status.text()
+    assert "dfu-device       DFU download" not in window._fastboot_status.text()
+    assert "dfu-device       DFU download" in window._fastboot_log.toPlainText()
 
 
 def test_fastboot_check_accepts_nonempty_stdout_without_parsing(
@@ -1521,7 +1537,8 @@ def test_fastboot_check_accepts_nonempty_stdout_without_parsing(
 
     qtbot.waitUntil(lambda: window._fastboot_process is None, timeout=1000)
     assert window._fastboot_ok
-    assert "unrecognized device format" in window._fastboot_status.text()
+    assert "unrecognized device format" not in window._fastboot_status.text()
+    assert "unrecognized device format" in window._fastboot_log.toPlainText()
 
 
 def test_flash_rejects_replaced_target(

@@ -10,6 +10,7 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 def test_ruyi_dependency_uses_registry_source() -> None:
     pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
     dependencies = pyproject["project"]["dependencies"]
+    assert "rich>=13.3.1" in dependencies
     assert "ruyi>=0.52.0a20260714,<0.53" in dependencies
     assert "ruyi" not in pyproject.get("tool", {}).get("uv", {}).get("sources", {})
 

@@ -28,6 +28,7 @@ def test_package_imports_cleanly() -> None:
         repo_news_child,
         repo_presets,
         repo_update_child,
+        rich_output,
         ruyi_facade,
         download_child,
         state,
@@ -55,6 +56,86 @@ def test_qt_logger_emits_signal(qtbot) -> None:
     assert ("I", "info: hello info") in captured  # ruyi prefixes with "info: "
     assert any(lvl == "W" and "warn" in txt for lvl, txt in captured)
     assert ("stdout", "plain") in captured
+
+
+def test_qt_logger_preserves_rich_styles_and_links(qtbot) -> None:
+    from PySide6.QtWidgets import QApplication
+    from ruyi.utils.global_mode import EnvGlobalModeProvider
+
+    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.rich_output import RichTextView
+
+    _app = QApplication.instance() or QApplication([])
+    emitter = LogEmitter()
+    logger = QtRuyiLogger(EnvGlobalModeProvider({}, []), emitter)
+    view = RichTextView()
+    qtbot.addWidget(view)
+    emitter.targeted_terminal_emitted.connect(
+        lambda _target, text: view.feed_text(text)
+    )
+    emitter.start_terminal_delivery()
+
+    logger.stdout("[bold blue]styled[/]")
+    logger.I("[link=https://example.com]linked[/]")
+
+    html = view.toHtml()
+    assert view.toPlainText().splitlines() == ["styled", "info: linked"]
+    assert "font-weight" in html
+    assert "color:" in html
+    assert "https://example.com" in html
+    assert "\x1b" not in view.toPlainText()
+
+
+def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from oh_my_ruyi.rich_output import RichTextView
+
+    _app = QApplication.instance() or QApplication([])
+    view = RichTextView()
+    qtbot.addWidget(view)
+
+    view.feed_bytes(b"plain\n\x1b[1;3")
+    view.feed_bytes(b"1mred 10%\rgreen 100%\x1b[0m\n", final=True)
+
+    assert view.toPlainText().splitlines() == ["plain", "green 100%"]
+    assert "color:" in view.toHtml()
+    assert "\x1b" not in view.toPlainText()
+
+
+def test_rich_text_view_normalizes_bel_terminated_links(qtbot) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from oh_my_ruyi.rich_output import RichTextView
+
+    _app = QApplication.instance() or QApplication([])
+    view = RichTextView()
+    qtbot.addWidget(view)
+
+    view.feed_text("\x1b]8;;https://example.com\x07link\x1b]8;;\x07\n", final=True)
+
+    assert view.toPlainText().strip() == "link"
+    assert "https://example.com" in view.toHtml()
+    assert "\x1b" not in view.toPlainText()
+
+
+def test_rich_text_view_rejects_unsafe_links_and_preserves_erase_prefix(qtbot) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from oh_my_ruyi.rich_output import RichTextView, strip_terminal_controls
+
+    _app = QApplication.instance() or QApplication([])
+    view = RichTextView()
+    qtbot.addWidget(view)
+
+    view.feed_text(
+        "\x1b]8;;javascript:alert(1)\x1b\\link\x1b]8;;\x1b\\\nnew 50%\x1b[K\n",
+        final=True,
+    )
+
+    assert view.toPlainText().splitlines() == ["link", "new 50%"]
+    assert "javascript:" not in view.toHtml()
+    assert strip_terminal_controls("ok\x1bPsecret\x1b\\done") == "okdone"
 
 
 def test_facade_exposes_expected_symbols() -> None:
@@ -164,7 +245,7 @@ def test_flash_worker_emits_carriage_return_output() -> None:
     from oh_my_ruyi.workers import FlashWorker
 
     worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
-    captured: list[str] = []
+    captured: list[bytes] = []
     worker.process_output.connect(captured.append)
 
     read_fd, write_fd = os.pipe()
@@ -178,7 +259,7 @@ def test_flash_worker_emits_carriage_return_output() -> None:
         if write_fd >= 0:
             os.close(write_fd)
 
-    assert captured == ["1024 bytes", "2048 bytes", "done"]
+    assert b"".join(captured) == b"1024 bytes\r2048 bytes\ndone"
 
 
 def test_worker_run_executes_in_worker_thread(qtbot) -> None:
