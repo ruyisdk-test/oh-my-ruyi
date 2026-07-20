@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QPlainTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +24,7 @@ from PySide6.QtWidgets import (
 from ruyi.telemetry.provider import next_utc_weekday
 
 from . import __version__, version_manager
+from .rich_output import RICH_TERMINAL_ENV, RichTextView
 
 
 def application_version() -> str:
@@ -143,16 +143,14 @@ class AboutTab(QWidget):
         root.addStretch()
 
     @staticmethod
-    def _make_version_view() -> QPlainTextEdit:
-        view = QPlainTextEdit()
-        view.setReadOnly(True)
+    def _make_version_view() -> RichTextView:
+        view = RichTextView()
         view.setFrameShape(QFrame.Shape.NoFrame)
-        view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         view.setMinimumHeight(150)
         return view
 
     @staticmethod
-    def _version_group(title: str, view: QPlainTextEdit) -> QWidget:
+    def _version_group(title: str, view: RichTextView) -> QWidget:
         box = QWidget()
         layout = QVBoxLayout(box)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -163,7 +161,7 @@ class AboutTab(QWidget):
 
     def _load_info(self) -> None:
         self._version_label.setText(f"Version {application_version()}")
-        self.bundled_version.setPlainText(_bundled_version_text())
+        self.bundled_version.set_ansi(_bundled_version_text())
         mode, schedule = telemetry_summary(self._config)
         self.telemetry_mode.setText(mode)
         self.telemetry_schedule.setText(schedule)
@@ -196,7 +194,10 @@ class AboutTab(QWidget):
         process.setProgram(os.fspath(path_state.command))
         process.setArguments(["version"])
         env = QProcessEnvironment.systemEnvironment()
+        env.remove("NO_COLOR")
         env.insert("RUYI_TELEMETRY_OPTOUT", "1")
+        for key, value in RICH_TERMINAL_ENV.items():
+            env.insert(key, value)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.finished.connect(
@@ -216,7 +217,7 @@ class AboutTab(QWidget):
         self._path_probe_timer.stop()
         output = bytes(process.readAllStandardOutput()).decode(errors="replace").strip()
         self._path_process = None
-        self.path_version.setPlainText(output or f"PATH ruyi exited with code {code}.")
+        self.path_version.set_ansi(output or f"PATH ruyi exited with code {code}.")
         process.deleteLater()
 
     def _on_path_probe_error(
@@ -239,7 +240,9 @@ class AboutTab(QWidget):
 
 def _bundled_version_text() -> str:
     env = os.environ.copy()
+    env.pop("NO_COLOR", None)
     env["RUYI_TELEMETRY_OPTOUT"] = "1"
+    env.update(RICH_TERMINAL_ENV)
     try:
         completed = subprocess.run(
             [sys.executable, "-m", "ruyi", "version"],

@@ -37,6 +37,13 @@ from . import host_storage, ruyi_facade, version_manager
 from .ruyi_facade import PreparedProvision
 
 
+def _set_terminal_target(config: GlobalConfig | None, target: str) -> None:
+    logger = getattr(config, "logger", None)
+    setter = getattr(logger, "set_terminal_target", None)
+    if callable(setter):
+        setter(target)
+
+
 class _BaseWorker(QObject):
     """Common signal surface for every worker."""
 
@@ -57,6 +64,7 @@ class RepoInitWorker(_BaseWorker):
 
     @Slot()
     def run(self) -> None:
+        _set_terminal_target(self._config, "welcome")
         try:
             mr = ruyi_facade.ensure_repo(self._config)
             self.finished.emit(mr)
@@ -74,6 +82,7 @@ class RepoSyncWorker(_BaseWorker):
 
     @Slot()
     def run(self) -> None:
+        _set_terminal_target(self._config, "device")
         try:
             mr = ruyi_facade.sync_repo(self._config, self._mr)
             self.finished.emit(mr)
@@ -339,6 +348,8 @@ class VersionDeactivationWorker(_BaseWorker):
 class TelemetrySetupWorker(_BaseWorker):
     """Apply the user's first-install telemetry choice using the activated ruyi."""
 
+    process_output = Signal(str)
+
     def __init__(
         self,
         binary: Path,
@@ -354,6 +365,10 @@ class TelemetrySetupWorker(_BaseWorker):
             self.finished.emit(
                 version_manager.run_telemetry_setup(self._binary, self._mode)
             )
+        except version_manager.TelemetryCommandError as exc:
+            if exc.output:
+                self.process_output.emit(exc.output)
+            self._fail(exc)
         except BaseException as exc:  # noqa: BLE001
             self._fail(exc)
 
@@ -365,7 +380,7 @@ class FlashWorker(_BaseWorker):
     cancelled = Signal()
     yes_no_requested = Signal(str, bool, object)
     password_requested = Signal(str, object)
-    process_output = Signal(str)
+    process_output = Signal(bytes)
 
     def __init__(
         self,
@@ -387,6 +402,7 @@ class FlashWorker(_BaseWorker):
 
     @Slot()
     def run(self) -> None:
+        _set_terminal_target(self._config, "flash")
         try:
             ret = self._run_with_gui_prompts()
             if self._cancel_requested.is_set():
@@ -449,7 +465,7 @@ class FlashWorker(_BaseWorker):
             )
             password = response["password"]
             if password is None:
-                self.process_output.emit("sudo password prompt was cancelled.")
+                self.process_output.emit(b"sudo password prompt was cancelled.\n")
                 return 1
             if self._cancel_requested.is_set():
                 return 130
@@ -459,7 +475,7 @@ class FlashWorker(_BaseWorker):
             stdin_data = None
 
         self._validate_dd_target(original_argv)
-        self.process_output.emit("$ " + " ".join(argv))
+        self.process_output.emit(("$ " + " ".join(argv) + "\n").encode())
         proc = subprocess.Popen(
             argv,
             stdin=subprocess.PIPE if stdin_data is not None else None,
@@ -582,7 +598,6 @@ class FlashWorker(_BaseWorker):
         sel = selectors.DefaultSelector()
         sel.register(stdout_fd, selectors.EVENT_READ)
         try:
-            pending = ""
             cancel_started: float | None = None
             kill_sent_at: float | None = None
             while True:
@@ -602,19 +617,7 @@ class FlashWorker(_BaseWorker):
                 chunk = os.read(stdout_fd, 4096)
                 if not chunk:
                     break
-                pending += chunk.decode(errors="replace")
-                while True:
-                    newline = pending.find("\n")
-                    carriage = pending.find("\r")
-                    stops = [idx for idx in (newline, carriage) if idx >= 0]
-                    if not stops:
-                        break
-                    stop = min(stops)
-                    if stop > 0:
-                        self.process_output.emit(pending[:stop])
-                    pending = pending[stop + 1 :]
-            if pending:
-                self.process_output.emit(pending)
+                self.process_output.emit(chunk)
         finally:
             sel.unregister(stdout_fd)
 

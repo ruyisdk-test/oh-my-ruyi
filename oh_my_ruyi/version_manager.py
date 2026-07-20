@@ -105,6 +105,14 @@ class DownloadCancelledError(VersionManagerError):
     """Raised when a package manager binary download is cancelled."""
 
 
+class TelemetryCommandError(VersionManagerError):
+    """Raised when ruyi telemetry fails after producing terminal output."""
+
+    def __init__(self, message: str, output: str) -> None:
+        super().__init__(message)
+        self.output = output
+
+
 @dataclass(frozen=True, slots=True)
 class RuyiRelease:
     version: str
@@ -160,6 +168,7 @@ TelemetryMode = Literal["consent", "local", "optout"]
 class TelemetrySetupResult:
     mode: TelemetryMode
     status: str
+    output: str = ""
 
 
 def versions_dir(home: Path | None = None) -> Path:
@@ -760,7 +769,7 @@ def run_telemetry_setup(
     runner = run_interactive or _run_interactive_telemetry_status
     output = runner(binary, answers, timeout)
     status = _telemetry_status_from_output(output, mode)
-    return TelemetrySetupResult(mode, status)
+    return TelemetrySetupResult(mode, status, output)
 
 
 def _run_interactive_telemetry_status(
@@ -772,6 +781,17 @@ def _run_interactive_telemetry_status(
     master_fd, slave_fd = pty.openpty()
     process: subprocess.Popen[bytes] | None = None
     chunks: list[bytes] = []
+    env = os.environ.copy()
+    env.pop("NO_COLOR", None)
+    env.update(
+        {
+            "COLORTERM": "truecolor",
+            "COLUMNS": "120",
+            "FORCE_COLOR": "1",
+            "TERM": "xterm-256color",
+            "TTY_COMPATIBLE": "1",
+        }
+    )
     try:
         process = subprocess.Popen(
             [os.fspath(binary), "telemetry", "status"],
@@ -779,6 +799,7 @@ def _run_interactive_telemetry_status(
             stdout=slave_fd,
             stderr=slave_fd,
             close_fds=True,
+            env=env,
             start_new_session=True,
         )
         os.close(slave_fd)
@@ -789,7 +810,10 @@ def _run_interactive_telemetry_status(
             if time.monotonic() >= deadline:
                 process.kill()
                 process.wait()
-                raise VersionManagerError("ruyi telemetry status timed out")
+                raise TelemetryCommandError(
+                    "ruyi telemetry status timed out",
+                    b"".join(chunks).decode(errors="replace"),
+                )
             readable, _, _ = select.select([master_fd], [], [], 0.1)
             if readable:
                 try:
@@ -808,9 +832,9 @@ def _run_interactive_telemetry_status(
         return_code = process.wait()
         output = b"".join(chunks).decode(errors="replace")
         if return_code != 0:
-            raise VersionManagerError(
-                output.strip()
-                or f"ruyi telemetry status exited with code {return_code}"
+            raise TelemetryCommandError(
+                f"ruyi telemetry status exited with code {return_code}",
+                output,
             )
         return output
     finally:

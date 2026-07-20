@@ -15,6 +15,8 @@ from __future__ import annotations
 import itertools
 import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
@@ -115,6 +117,40 @@ def load_global_config(
 
 
 PROVISION_REPO_ID = DEFAULT_REPO_ID
+_GIT_PROGRESS_LOCK = threading.RLock()
+
+
+@contextmanager
+def _route_git_progress(logger: RuyiLogger | None):
+    """Route ruyi's internally-created Git progress console through ``logger``."""
+    if logger is None:
+        yield
+        return
+    from rich.progress import Progress
+    from ruyi.ruyipkg import repo as repo_module
+    from ruyi.utils import git as git_utils
+
+    with _GIT_PROGRESS_LOCK:
+        original_git_indicator = git_utils.RemoteGitProgressIndicator
+        original_repo_indicator = repo_module.RemoteGitProgressIndicator
+
+        class LoggerGitProgressIndicator(original_git_indicator):
+            def __init__(self) -> None:
+                super().__init__()
+                self.p = Progress(
+                    console=logger.log_console,
+                    transient=False,
+                    redirect_stdout=False,
+                    redirect_stderr=False,
+                )
+
+        git_utils.RemoteGitProgressIndicator = LoggerGitProgressIndicator
+        repo_module.RemoteGitProgressIndicator = LoggerGitProgressIndicator
+        try:
+            yield
+        finally:
+            git_utils.RemoteGitProgressIndicator = original_git_indicator
+            repo_module.RemoteGitProgressIndicator = original_repo_indicator
 
 
 def use_provision_repo(config: GlobalConfig) -> CompositeRepo:
@@ -141,13 +177,15 @@ def ensure_repo(config: GlobalConfig) -> CompositeRepo:
     while. Always call from a background thread.
     """
     mr = use_provision_repo(config)
-    mr.ensure_git_repo()
+    with _route_git_progress(getattr(config, "logger", None)):
+        mr.ensure_git_repo()
     return mr
 
 
 def sync_repo(config: GlobalConfig, mr: CompositeRepo) -> CompositeRepo:
     """Sync only the official RuyiSDK repository and reload its metadata."""
-    mr.sync_one(PROVISION_REPO_ID)
+    with _route_git_progress(getattr(config, "logger", None)):
+        mr.sync_one(PROVISION_REPO_ID)
     return use_provision_repo(config)
 
 
