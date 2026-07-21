@@ -56,6 +56,17 @@ Depending on the selected image, flashing may also require:
 - `sudo` when elevated privileges are needed.
 - `fastboot` for fastboot-based strategies and device checks.
 
+## macOS Notes
+
+The macOS PyInstaller binary attached to a tagged pre-release is not code-signed
+or notarized. macOS Gatekeeper may therefore block it or warn that its developer
+cannot be verified.
+
+Because of fastboot device-identification limitations on macOS, ruyi device
+provisioning on macOS currently supports only strategies that write an image to
+a disk with `dd`. Fastboot-based device flashing is not supported on macOS. This
+is a macOS/fastboot toolchain limitation, not an Oh My Ruyi limitation.
+
 ## Run
 
 Start the GUI from a graphical session:

@@ -335,6 +335,13 @@ The wheel is built by Hatchling through `uv build`. Package files are selected
 from `oh_my_ruyi`, including translation catalogs below `locales/`. After adding
 a non-Python resource, inspect the wheel rather than assuming it was included.
 
+Tag pushes run the PyInstaller workflow on Debian 12 and macOS 14 and create a
+pre-release from both artifacts. The macOS artifact is not code-signed or
+notarized. Device-provision testing on macOS is limited to `dd`-based storage
+strategies because the macOS/fastboot toolchain cannot provide the device
+identification required by fastboot-based ruyi strategies; this restriction is
+outside the GUI implementation.
+
 ## Project Layout
 
 ```text
