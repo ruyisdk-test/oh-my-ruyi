@@ -586,7 +586,7 @@ class ProvisionMainWindow(QMainWindow):
             dialog.set_stage(
                 0,
                 _(
-                    "Could not load stable ruyi release information: {message}",
+                    "Could not load compatible ruyi release information: {message}",
                     message=self._first_use_catalog_error,
                 ),
                 action="Retry",
@@ -657,31 +657,32 @@ class ProvisionMainWindow(QMainWindow):
                 kind="error",
             )
             return
-        stable = [
-            release
-            for release in self._pm_catalog_releases
-            if release.channel.casefold() == "stable"
-        ]
-        if not stable:
+        releases = list(self._pm_catalog_releases)
+        if not releases:
             self._first_use_action = "refresh"
             dialog.set_stage(
                 0,
-                _("No stable ruyi release is available for this computer."),
+                _("No compatible ruyi release is available for this computer."),
                 action="Retry",
                 skip="Continue without download",
                 kind="error",
             )
             return
+        stable = [
+            release for release in releases if release.channel.casefold() == "stable"
+        ]
+        candidates = stable or releases
         self._first_use_release = max(
-            stable,
+            candidates,
             key=lambda release: version_manager.version_sort_key(release.version),
         )
         self._first_use_action = "download"
         dialog.set_stage(
             0,
             _(
-                "Download the latest stable ruyi {version} and activate it at {path}?",
+                "Download ruyi {version} ({channel}) and activate it at {path}?",
                 version=self._first_use_release.version,
+                channel=self._first_use_release.channel,
                 path=self._pm_activation_link,
             ),
             action="Download and activate",
@@ -2212,7 +2213,7 @@ class ProvisionMainWindow(QMainWindow):
                 self._first_use_action = "download"
                 setup_dialog.set_stage(
                     0,
-                    _("The stable ruyi download was cancelled."),
+                    _("The ruyi download was cancelled."),
                     action="Download and activate",
                     skip="Skip download",
                     kind="warning",
@@ -2296,7 +2297,7 @@ class ProvisionMainWindow(QMainWindow):
                 dialog.set_stage(
                     0,
                     _(
-                        "Could not load stable ruyi release information: {message}",
+                        "Could not load compatible ruyi release information: {message}",
                         message=details,
                     ),
                     action="Retry",

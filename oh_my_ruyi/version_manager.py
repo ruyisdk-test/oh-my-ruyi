@@ -13,6 +13,7 @@ import re
 import select
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,6 +24,8 @@ from urllib.parse import unquote, urlsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Callable, Literal
+
+from ruyi.utils.xdg_basedir import XDGBaseDir
 
 from .i18n import locale_environment
 
@@ -175,7 +178,11 @@ class TelemetrySetupResult:
 
 def managed_data_dir(home: Path | None = None) -> Path:
     """Return Oh My Ruyi's per-user data directory."""
-    home = Path.home() if home is None else Path(home)
+    if home is None:
+        return XDGBaseDir("oh-my-ruyi").app_data
+    home = Path(home)
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / "oh-my-ruyi"
     return home / ".local" / "share" / "oh-my-ruyi"
 
 
@@ -185,7 +192,18 @@ def versions_dir(home: Path | None = None) -> Path:
 
 
 def telemetry_installation_path(home: Path | None = None) -> Path:
-    home = Path.home() if home is None else Path(home)
+    if home is None:
+        return XDGBaseDir("ruyi").app_state / "telemetry" / "installation.json"
+    home = Path(home)
+    if sys.platform == "darwin":
+        return (
+            home
+            / "Library"
+            / "Application Support"
+            / "ruyi"
+            / "telemetry"
+            / "installation.json"
+        )
     return home / ".local" / "state" / "ruyi" / "telemetry" / "installation.json"
 
 

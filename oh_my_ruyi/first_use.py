@@ -23,7 +23,7 @@ from .i18n import _, translate_widget_tree
 
 
 SETUP_STEPS = (
-    "Download the latest stable ruyi",
+    "Download a compatible ruyi",
     "Activate ruyi at /usr/local/bin/ruyi",
     "Choose and update the RuyiSDK mirror",
     "Review the completed setup",
@@ -90,7 +90,7 @@ class FirstUseDialog(QDialog):
         layout = QVBoxLayout(self)
         introduction = QLabel(
             _(
-                "Set up a stable ruyi command and choose the metadata mirror used by "
+                "Set up a compatible ruyi command and choose the metadata mirror used by "
                 "RuyiSDK. You can exit this setup at any time."
             )
         )
@@ -138,7 +138,7 @@ class FirstUseDialog(QDialog):
         translate_widget_tree(self)
         self.set_stage(
             0,
-            _("Checking for the latest stable ruyi release..."),
+            _("Checking for compatible ruyi releases..."),
             busy=True,
         )
 

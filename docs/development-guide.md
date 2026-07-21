@@ -120,10 +120,13 @@ select different languages.
 
 The first-use setup is offered only when all of these conditions hold:
 
-1. `~/.local/state/ruyi/telemetry/installation.json` is absent.
+1. ruyi's telemetry `installation.json` is absent.
 2. No executable named `ruyi` outside the running Python environment resolves on
    `PATH`.
-3. `~/.local/share/oh-my-ruyi/` is absent.
+3. Oh My Ruyi's managed data directory is absent.
+
+The first and third paths come from ruyi's XDG helper, so Linux defaults live
+under `~/.local/` while macOS defaults live under `~/Library/Application Support/`.
 
 `first_use.should_offer_first_use_setup()` owns this predicate. Do not replace it
 with a separate completion marker: the file-system and PATH state are the
@@ -136,7 +139,8 @@ leave an empty managed data directory that suppresses the next launch's offer.
 `FirstUseDialog` only renders current and remaining steps and exposes user
 actions. `ProvisionMainWindow` owns the orchestration:
 
-1. Fetch the existing release catalog and offer its newest `stable` entry.
+1. Fetch the existing release catalog and offer the newest compatible `stable`
+   entry, falling back to another compatible channel when stable is unavailable.
 2. Reuse `_VersionDownloadDialog`, `VersionDownloadWorker`, and
    `VersionActivationWorker` to download and activate the selected binary at the
    normal managed link. The user still chooses a URL and sees the normal download

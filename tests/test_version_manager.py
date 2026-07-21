@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -41,6 +42,38 @@ def _release_payload() -> dict:
     }
 
 
+def test_macos_release_catalog_does_not_accept_linux_arm64_binaries() -> None:
+    payload = {
+        "channels": {
+            "testing": {
+                "version": "0.52.0-alpha.20260714",
+                "release_date": "2026-07-14T10:54:29Z",
+                "download_urls": {
+                    "linux/macos-arm64": [
+                        "https://example.test/ruyi-0.52.0-alpha.20260714.macos-arm64"
+                    ],
+                    "linux/aarch64": [
+                        "https://example.test/ruyi-0.52.0-alpha.20260714.arm64"
+                    ],
+                },
+            },
+            "stable": {
+                "version": "0.51.0",
+                "release_date": "2026-07-20T23:01:27Z",
+                "download_urls": {
+                    "linux/aarch64": ["https://example.test/ruyi-0.51.0.arm64"],
+                },
+            },
+        }
+    }
+
+    releases = version_manager.parse_release_catalog(payload, "linux/macos-arm64")
+
+    assert [(item.version, item.channel, item.architecture) for item in releases] == [
+        ("0.52.0-alpha.20260714", "testing", "macos-arm64"),
+    ]
+
+
 def test_fetch_release_catalog_falls_back_to_static_mirror() -> None:
     calls: list[str] = []
 
@@ -64,6 +97,36 @@ def test_fetch_release_catalog_falls_back_to_static_mirror() -> None:
         "0.52.0-alpha.20260714",
         "0.50.0",
     ]
+
+
+def test_user_paths_follow_ruyi_xdg_rules_on_macos(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+
+    assert version_manager.managed_data_dir(tmp_path) == (
+        tmp_path / "Library" / "Application Support" / "oh-my-ruyi"
+    )
+    assert version_manager.telemetry_installation_path(tmp_path) == (
+        tmp_path
+        / "Library"
+        / "Application Support"
+        / "ruyi"
+        / "telemetry"
+        / "installation.json"
+    )
+
+
+def test_user_paths_respect_xdg_overrides(monkeypatch, tmp_path: Path) -> None:
+    data_home = tmp_path / "xdg-data"
+    state_home = tmp_path / "xdg-state"
+    monkeypatch.setenv("XDG_DATA_HOME", os.fspath(data_home))
+    monkeypatch.setenv("XDG_STATE_HOME", os.fspath(state_home))
+
+    assert version_manager.managed_data_dir() == data_home / "oh-my-ruyi"
+    assert version_manager.telemetry_installation_path() == (
+        state_home / "ruyi" / "telemetry" / "installation.json"
+    )
 
 
 @pytest.mark.parametrize(

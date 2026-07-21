@@ -131,12 +131,13 @@ Use this map to find the owning boundary:
 - Do not revert unrelated worktree changes. Inspect the final diff for generated
   files, absolute local paths, secrets, and accidental metadata churn.
 - First-use setup is offered only if telemetry installation state is absent, no
-  external `ruyi` resolves on `PATH`, and the managed data root is absent. The
-  ruyi console script beside `sys.executable` belongs to this application's
-  Python dependency and is ignored, but later PATH entries must still be
-  searched. Do not add a separate completion marker. A failed or cancelled
-  initial download must not leave an empty managed data root that suppresses the
-  offer on the next launch.
+  external `ruyi` resolves on `PATH`, and the managed data root is absent. Those
+  paths must follow ruyi's XDG helper, including macOS `~/Library/Application
+  Support/` defaults. The ruyi console script beside `sys.executable` belongs to
+  this application's Python dependency and is ignored, but later PATH entries
+  must still be searched. Do not add a separate completion marker. A failed or
+  cancelled initial download must not leave an empty managed data root that
+  suppresses the offer on the next launch.
 - The first-use dialog is a step/status surface, not another implementation
   of downloads, activation, or repository updates. Its completion path goes to
   About after the chosen `ruyisdk` source updates; it must not start provisioning.

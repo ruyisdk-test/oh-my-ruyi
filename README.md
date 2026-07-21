@@ -73,14 +73,16 @@ Running from a plain TTY or an SSH session without `DISPLAY` or
 
 On first use, Oh My Ruyi offers a setup flow when no ruyi telemetry installation
 state exists, no `ruyi` command outside the application's Python environment is
-found on `PATH`, and
-`~/.local/share/oh-my-ruyi/` does not exist. The flow can be exited at any time.
+found on `PATH`, and the Oh My Ruyi data directory does not exist. On Linux these
+paths are under `~/.local/`; on macOS they follow ruyi's `~/Library/Application
+Support/` locations. The flow can be exited at any time.
 
-It offers to download and activate the latest stable ruyi release at
-`/usr/local/bin/ruyi`. You can skip that download and continue to choose the
-default `ruyisdk` metadata mirror. After the selected mirror is updated, the GUI
-opens the About tab. Skipping or exiting does not record completion, so the setup
-remains available on a later launch while the same conditions hold.
+It offers to download and activate a compatible ruyi release at
+`/usr/local/bin/ruyi`, preferring the latest stable release when available. You
+can skip that download and continue to choose the default `ruyisdk` metadata
+mirror. After the selected mirror is updated, the GUI opens the About tab.
+Skipping or exiting does not record completion, so the setup remains available on
+a later launch while the same conditions hold.
 
 ## Localization
 

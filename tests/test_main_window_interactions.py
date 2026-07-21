@@ -145,12 +145,37 @@ def test_first_use_catalog_prefers_latest_stable_release(
     assert dialog is not None
     assert window._first_use_release is not None
     assert window._first_use_release.version == "0.51.0"
-    assert (
-        dialog.current_label.text() == "Current step: Download the latest stable ruyi"
-    )
+    assert dialog.current_label.text() == "Current step: Download a compatible ruyi"
     assert dialog.remaining_label.text() == "Remaining steps: 3"
     assert dialog.action_button.text() == "Download and activate"
     assert dialog.skip_button.text() == "Skip download"
+
+
+def test_first_use_uses_testing_release_when_stable_is_unavailable(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    window = _first_use_window(qtbot, monkeypatch, tmp_path)
+
+    window._on_pm_catalog_ready(
+        version_manager.ReleaseCatalog(
+            (
+                version_manager.RuyiRelease(
+                    "0.52.0-alpha.1",
+                    "testing",
+                    "2026-07-14",
+                    ("https://example.test/testing",),
+                    "macos-arm64",
+                ),
+            ),
+            version_manager.PRIMARY_RELEASES_URL,
+        )
+    )
+
+    assert window._first_use_release is not None
+    assert window._first_use_release.version == "0.52.0-alpha.1"
+    assert window._first_use_dialog is not None
+    assert "testing" in window._first_use_dialog.status.text()
+    assert window._first_use_dialog.action_button.text() == "Download and activate"
 
 
 def test_first_use_catalog_failure_can_continue_without_download(
