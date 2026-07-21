@@ -23,11 +23,54 @@ from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
 from oh_my_ruyi.workers import FlashWorker
 
 
-def _x86_64_elf() -> bytes:
+def _elf_header(machine: int, *, elf_class: int = 2) -> bytes:
     header = bytearray(64)
-    header[:7] = b"\x7fELF\x02\x01\x01"
-    header[18:20] = (62).to_bytes(2, "little")
+    header[:7] = b"\x7fELF" + bytes((elf_class, 1, 1))
+    header[18:20] = machine.to_bytes(2, "little")
     return bytes(header)
+
+
+def _macho_header(cpu_type: int) -> bytes:
+    header = bytearray(64)
+    header[:4] = b"\xcf\xfa\xed\xfe"
+    header[4:8] = cpu_type.to_bytes(4, "little")
+    return bytes(header)
+
+
+def _binary_header_for_arch(architecture: str) -> bytes:
+    normalized = version_manager.normalize_architecture(architecture) or architecture
+    if normalized == "x86_64":
+        return (
+            _macho_header(0x01000007)
+            if platform.system() == "Darwin"
+            else _elf_header(62)
+        )
+    if normalized == "aarch64":
+        return (
+            _macho_header(0x0100000C)
+            if platform.system() == "Darwin"
+            else _elf_header(183)
+        )
+    if normalized == "riscv64":
+        return _elf_header(243)
+    return b"standalone ruyi"
+
+
+def _host_binary_header() -> bytes:
+    return _binary_header_for_arch(version_manager.host_architecture())
+
+
+def _download_architecture_for_host() -> str:
+    host = version_manager.host_architecture()
+    if platform.system() == "Darwin" and host == "aarch64":
+        return "macos-arm64"
+    if host == "x86_64":
+        return "amd64"
+    return host
+
+
+def _host_download_url(version: str) -> str:
+    return f"https://downloads.example/ruyi-{version}.{_download_architecture_for_host()}"
 
 
 @pytest.fixture
@@ -237,7 +280,7 @@ def test_first_use_downloads_activates_then_opens_repo_management(
         "stable",
         "2026-08-01",
         ("https://example.test/stable",),
-        "x86_64",
+        version_manager.host_architecture(),
     )
     window._first_use_release = release
     source_dialog_attempted: list[None] = []
@@ -409,7 +452,7 @@ def test_version_tables_separate_available_and_downloaded_versions(
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     binary = window._pm_versions_directory / "ruyi-0.50.0"
-    binary.write_bytes(_x86_64_elf())
+    binary.write_bytes(_host_binary_header())
     binary.chmod(0o755)
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(binary)
@@ -467,7 +510,7 @@ def test_active_version_color_compares_with_matching_api_channel(
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     active = window._pm_versions_directory / f"ruyi-{active_version}"
-    active.write_bytes(_x86_64_elf())
+    active.write_bytes(_host_binary_header())
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(active)
     monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
@@ -514,7 +557,7 @@ def test_active_latest_version_row_uses_default_foreground(
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     latest = window._pm_versions_directory / "ruyi-0.51.0"
-    latest.write_bytes(_x86_64_elf())
+    latest.write_bytes(_host_binary_header())
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(latest)
     monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
@@ -546,8 +589,8 @@ def test_latest_downloaded_version_is_green_only_in_right_table(
     window._pm_versions_directory.mkdir(parents=True)
     active = window._pm_versions_directory / "ruyi-0.50.0"
     latest = window._pm_versions_directory / "ruyi-0.51.0"
-    active.write_bytes(_x86_64_elf())
-    latest.write_bytes(_x86_64_elf())
+    active.write_bytes(_host_binary_header())
+    latest.write_bytes(_host_binary_header())
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(active)
     monkeypatch.setenv("PATH", os.fspath(window._pm_activation_link.parent))
@@ -598,7 +641,7 @@ def test_external_system_management_keeps_tables_visible_but_disables_controls(
     system_config.write_text("[installation]\nexternally_managed = true\n")
     versions = tmp_path / "versions"
     versions.mkdir()
-    (versions / "ruyi-0.50.0").write_bytes(_x86_64_elf())
+    (versions / "ruyi-0.50.0").write_bytes(_host_binary_header())
     telemetry_installation = tmp_path / "state" / "installation.json"
     telemetry_installation.parent.mkdir()
     telemetry_installation.write_text("{}")
@@ -685,7 +728,7 @@ def test_browse_opens_selected_binary_directory(
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     binary = window._pm_versions_directory / "ruyi-0.50.0"
-    binary.write_bytes(_x86_64_elf())
+    binary.write_bytes(_host_binary_header())
     started: list[tuple[str, list[str]]] = []
     monkeypatch.setattr(main_window.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
@@ -792,7 +835,7 @@ def test_local_refresh_rescans_versions_directory(
 
     window._pm_versions_directory.mkdir(parents=True)
     binary = window._pm_versions_directory / "ruyi-0.50.0"
-    binary.write_bytes(_x86_64_elf())
+    binary.write_bytes(_host_binary_header())
 
     window._pm_local_refresh_btn.click()
 
@@ -922,7 +965,7 @@ def test_download_dialog_retries_another_url_and_closes_after_success(
             raise OSError("primary unavailable")
         directory.mkdir(parents=True, exist_ok=True)
         binary = directory / "ruyi-0.50.0"
-        binary.write_bytes(_x86_64_elf())
+        binary.write_bytes(_host_binary_header())
         return binary
 
     monkeypatch.setattr(version_manager, "download_release", download_release)
@@ -1010,7 +1053,7 @@ def test_add_url_is_transient_and_survives_refresh(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1.amd64"
+    custom_url = _host_download_url("0.53.0-beta.1")
     monkeypatch.setattr(
         main_window.QInputDialog,
         "getText",
@@ -1022,7 +1065,7 @@ def test_add_url_is_transient_and_survives_refresh(
     assert window._pm_available_table.rowCount() == 1
     assert window._pm_available_table.item(0, 0).text() == "0.53.0-beta.1"
     assert window._pm_available_table.item(0, 1).text() == "custom"
-    assert window._pm_available_table.item(0, 2).text() == "x86_64"
+    assert window._pm_available_table.item(0, 2).text() == version_manager.host_architecture()
     assert window._pm_download_btn.isEnabled()
     assert window._pm_remove_url_btn.isEnabled()
 
@@ -1052,7 +1095,7 @@ def test_remove_does_not_remove_api_release_with_same_version(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    custom_url = "https://downloads.example/ruyi-0.53.0-beta.1.amd64"
+    custom_url = _host_download_url("0.53.0-beta.1")
     monkeypatch.setattr(
         main_window.QInputDialog,
         "getText",
@@ -1100,7 +1143,6 @@ def test_add_url_rejects_incompatible_architecture(
     window: ProvisionMainWindow,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(version_manager.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(
         main_window.QInputDialog,
         "getText",
@@ -1123,24 +1165,23 @@ def test_add_url_rejects_incompatible_architecture(
     assert warnings == [
         (
             "Incompatible ruyi architecture",
-            "The URL provides a riscv64 binary, but this computer uses x86_64.",
+            f"The URL provides a riscv64 binary, but this computer uses {version_manager.host_architecture()}.",
         )
     ]
 
 
+@pytest.mark.parametrize("machine", ["x86_64", "aarch64"])
 def test_installed_table_hides_incompatible_binary(
     window: ProvisionMainWindow,
     monkeypatch,
+    machine: str,
 ) -> None:
-    monkeypatch.setattr(version_manager.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(version_manager.platform, "machine", lambda: machine)
     window._pm_versions_directory.mkdir(parents=True)
     compatible = window._pm_versions_directory / "ruyi-0.50.0"
     incompatible = window._pm_versions_directory / "ruyi-0.51.0"
-    compatible.write_bytes(_x86_64_elf())
-    riscv_header = bytearray(64)
-    riscv_header[:7] = b"\x7fELF\x02\x01\x01"
-    riscv_header[18:20] = (243).to_bytes(2, "little")
-    incompatible.write_bytes(riscv_header)
+    compatible.write_bytes(_binary_header_for_arch(machine))
+    incompatible.write_bytes(_binary_header_for_arch("riscv64"))
 
     window._refresh_pm_versions()
 
@@ -1155,8 +1196,8 @@ def test_latest_note_ignores_transient_custom_releases(
     window._pm_versions_directory.mkdir(parents=True)
     stable = window._pm_versions_directory / "ruyi-0.50.0"
     custom = window._pm_versions_directory / "ruyi-0.53.0-beta.1"
-    stable.write_bytes(_x86_64_elf())
-    custom.write_bytes(_x86_64_elf())
+    stable.write_bytes(_host_binary_header())
+    custom.write_bytes(_host_binary_header())
     window._pm_catalog_releases = [
         version_manager.RuyiRelease(
             "0.50.0",
@@ -1193,7 +1234,7 @@ def test_deactivate_requires_selected_active_version(
 ) -> None:
     window._pm_versions_directory.mkdir(parents=True)
     binary = window._pm_versions_directory / "ruyi-0.50.0"
-    binary.write_bytes(_x86_64_elf())
+    binary.write_bytes(_host_binary_header())
     window._pm_activation_link.parent.mkdir(parents=True)
     window._pm_activation_link.symlink_to(binary)
     questions: list[bool] = []

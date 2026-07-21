@@ -19,6 +19,13 @@ def _elf_header(machine: int, *, elf_class: int = 2) -> bytes:
     return bytes(header)
 
 
+def _macho_header(cpu_type: int) -> bytes:
+    header = bytearray(64)
+    header[:4] = b"\xcf\xfa\xed\xfe"
+    header[4:8] = cpu_type.to_bytes(4, "little")
+    return bytes(header)
+
+
 def _release_payload() -> dict:
     return {
         "channels": {
@@ -185,7 +192,9 @@ def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
     [
         ("amd64", "x86_64", True),
         ("x86_64", "AMD64", True),
+        ("linux/aarch64", "arm64", True),
         ("macos-arm64", "aarch64", True),
+        ("macos-arm64", "arm64", True),
         ("riscv64", "x86_64", False),
         ("unknown-arch", "x86_64", False),
     ],
@@ -436,6 +445,26 @@ def test_binary_architecture_does_not_use_filename(tmp_path: Path) -> None:
 
     binary.write_bytes(b"not an executable header")
     assert version_manager.binary_architecture(binary) == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        (_elf_header(62), "x86_64"),
+        (_elf_header(183), "aarch64"),
+        (_macho_header(0x01000007), "x86_64"),
+        (_macho_header(0x0100000C), "arm64"),
+    ],
+)
+def test_binary_architecture_reads_linux_and_macos_host_formats(
+    tmp_path: Path,
+    header: bytes,
+    expected: str,
+) -> None:
+    binary = tmp_path / "ruyi-0.50.0"
+    binary.write_bytes(header)
+
+    assert version_manager.binary_architecture(binary) == expected
 
 
 def test_activation_state_is_derived_from_symlink(tmp_path: Path) -> None:

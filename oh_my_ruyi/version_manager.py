@@ -241,7 +241,7 @@ def host_platform_key(
 def normalize_architecture(architecture: str) -> str | None:
     """Return a canonical CPU architecture name for common aliases."""
     architecture = architecture.strip().lower()
-    for prefix in ("darwin-", "linux-", "macos-"):
+    for prefix in ("darwin-", "linux-", "macos-", "darwin/", "linux/", "macos/"):
         if architecture.startswith(prefix):
             architecture = architecture.removeprefix(prefix)
             break

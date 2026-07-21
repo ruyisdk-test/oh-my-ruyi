@@ -8,6 +8,7 @@ from oh_my_ruyi import host_storage
 
 
 def test_disk_mount_detection_checks_children(monkeypatch) -> None:
+    monkeypatch.setattr(host_storage.platform, "system", lambda: "Linux")
     monkeypatch.setattr(
         host_storage,
         "_linux_related_block_device_ids",
@@ -39,6 +40,7 @@ def test_linux_mount_detection_fails_closed_when_topology_is_unknown(
 def test_linux_mount_detection_follows_holder_devices(
     monkeypatch, tmp_path: Path
 ) -> None:
+    monkeypatch.setattr(host_storage.platform, "system", lambda: "Linux")
     disk = tmp_path / "sda"
     partition = disk / "sda1"
     holder = partition / "holders" / "dm-0"
