@@ -61,6 +61,7 @@ jobs:
         run: uv build
 
       - name: Run tests
+        timeout-minutes: 5
         env:
           QT_QPA_PLATFORM: offscreen
-        run: uv run --locked python -m pytest -q
+        run: uv run --locked python -m pytest -vv -ra --tb=short
