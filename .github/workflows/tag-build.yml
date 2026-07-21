@@ -33,6 +33,7 @@ jobs:
         run: |
           apt-get update
           apt-get install --no-install-recommends -y \
+            binutils \
             ca-certificates \
             curl \
             git \
