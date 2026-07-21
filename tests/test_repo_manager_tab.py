@@ -37,6 +37,42 @@ class _FakeProcess:
         pass
 
 
+class _FakeSignal:
+    def __init__(self) -> None:
+        self.callbacks = []
+
+    def connect(self, callback) -> None:
+        self.callbacks.append(callback)
+
+
+class _StartableFakeProcess(_FakeProcess):
+    ProcessChannelMode = QProcess.ProcessChannelMode
+
+    def __init__(self, _parent=None) -> None:
+        super().__init__()
+        self.readyReadStandardOutput = _FakeSignal()
+        self.finished = _FakeSignal()
+        self.errorOccurred = _FakeSignal()
+        self.program = ""
+        self.arguments: list[str] = []
+        self.started = False
+
+    def setProgram(self, program: str) -> None:  # noqa: N802 - mirrors QProcess
+        self.program = program
+
+    def setArguments(self, arguments: list[str]) -> None:  # noqa: N802
+        self.arguments = arguments
+
+    def setProcessEnvironment(self, _environment) -> None:  # noqa: N802
+        pass
+
+    def setProcessChannelMode(self, _mode) -> None:  # noqa: N802
+        pass
+
+    def start(self) -> None:
+        self.started = True
+
+
 class _FakeLabel:
     def __init__(self) -> None:
         self._text = ""
@@ -398,6 +434,59 @@ def test_ruyisdk_presets_keep_declared_order_and_custom_last(qtbot) -> None:
     ]
     assert dialog.source_combo.currentIndex() == 2
     assert dialog.source_combo.itemText(dialog.source_combo.count() - 1) == "Custom"
+
+
+def test_first_use_default_source_selection_enables_and_updates_repo(
+    qtbot,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+    config = tmp_path / "ruyi" / "config.toml"
+    config.parent.mkdir()
+    config.write_text("[repo]\ndisabled = true\n")
+    tab = RepoManagementTab(config_path=config)
+    qtbot.addWidget(tab)
+
+    class FakeDialog:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.help_label = _FakeLabel()
+
+        def exec(self) -> QDialog.DialogCode:
+            return QDialog.DialogCode.Accepted
+
+        def values(self):
+            return (
+                repo_manager.RepoSource(
+                    "https://mirror.test/packages-index.git",
+                    None,
+                    "main",
+                ),
+                0,
+                "",
+            )
+
+    monkeypatch.setattr(repo_manager_tab_module, "_RepoSourceDialog", FakeDialog)
+    monkeypatch.setattr(repo_manager_tab_module, "QProcess", _StartableFakeProcess)
+
+    assert tab.choose_default_source_and_update()
+
+    default = repo_manager.read_configured_repos(config)[0]
+    assert default.active
+    assert default.remote == "https://mirror.test/packages-index.git"
+    process = tab._process
+    assert isinstance(process, _StartableFakeProcess)
+    assert process.started
+    assert process.arguments[-1] == "ruyisdk"
+    assert isinstance(tab._update_dialog, _RepoUpdateDialog)
+    assert tab._update_dialog.isVisible()
+
+    update_dialog = tab._update_dialog
+    tab._finish_update(True, "Updated ruyisdk.")
+
+    assert tab._process is None
+    assert tab._update_dialog is None
+    assert not update_dialog.isVisible()
 
 
 def test_repo_panels_use_one_to_two_width_ratio(qtbot, tmp_path: Path) -> None:

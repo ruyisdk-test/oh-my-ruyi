@@ -173,10 +173,15 @@ class TelemetrySetupResult:
     output: str = ""
 
 
+def managed_data_dir(home: Path | None = None) -> Path:
+    """Return Oh My Ruyi's per-user data directory."""
+    home = Path.home() if home is None else Path(home)
+    return home / ".local" / "share" / "oh-my-ruyi"
+
+
 def versions_dir(home: Path | None = None) -> Path:
     """Return the private per-user directory holding downloaded binaries."""
-    home = Path.home() if home is None else Path(home)
-    return home / ".local" / "share" / "oh-my-ruyi" / "versions"
+    return managed_data_dir(home) / "versions"
 
 
 def telemetry_installation_path(home: Path | None = None) -> Path:

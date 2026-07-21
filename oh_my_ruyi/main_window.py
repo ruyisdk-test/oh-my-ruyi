@@ -60,8 +60,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import host_storage, repo_manager, ruyi_facade, version_manager
+from . import first_use, host_storage, repo_manager, ruyi_facade, version_manager
 from .about_tab import AboutTab
+from .first_use import FirstUseDialog
 from .i18n import apply_qprocess_locale, _, translate_widget_tree
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
@@ -299,6 +300,7 @@ class ProvisionMainWindow(QMainWindow):
         *,
         auto_start: bool = True,
         versions_directory: Path | None = None,
+        managed_data_directory: Path | None = None,
         activation_link: Path | None = None,
         telemetry_installation: Path | None = None,
         system_ruyi_config: Path | None = None,
@@ -368,8 +370,26 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_thread = None
         self._pm_operation = ""
         self._pm_download_dialog: _VersionDownloadDialog | None = None
-        self._pm_first_run_check_pending = auto_start
         self._pm_error_output = ""
+        if managed_data_directory is not None:
+            self._first_use_data_directory = Path(managed_data_directory)
+        elif versions_directory is not None:
+            self._first_use_data_directory = self._pm_versions_directory.parent
+        else:
+            self._first_use_data_directory = version_manager.managed_data_dir()
+        self._first_use_active = auto_start and first_use.should_offer_first_use_setup(
+            self._pm_telemetry_installation,
+            self._first_use_data_directory,
+        )
+        self._first_use_dialog: FirstUseDialog | None = None
+        self._first_use_release: version_manager.RuyiRelease | None = None
+        self._first_use_binary: Path | None = None
+        self._first_use_action = ""
+        self._first_use_operation = ""
+        self._first_use_catalog_error: str | None = None
+        self._first_use_catalog_pending = self._first_use_active
+        self._first_use_activated = False
+        self._pm_first_run_check_pending = auto_start and not self._first_use_active
 
         self._device_choices = {}
         self._variant_choices = {}
@@ -384,6 +404,8 @@ class ProvisionMainWindow(QMainWindow):
         translate_widget_tree(self)
         self._connect_logs()
         self._set_step(self.STEP_WELCOME)
+        if self._first_use_active:
+            QTimer.singleShot(0, self._open_first_use_setup)
         if auto_start:
             self._refresh_pm_catalog()
 
@@ -517,6 +539,9 @@ class ProvisionMainWindow(QMainWindow):
             self._on_repo_configuration_changed
         )
         self._repo_manager_tab.repository_updated.connect(self._on_managed_repo_updated)
+        self._repo_manager_tab.repository_update_finished.connect(
+            self._on_first_use_repo_update_finished
+        )
         self._repo_manager_tab.busy_changed.connect(self._on_repo_manager_busy_changed)
         self._repo_manager_tab.provision_update_finished.connect(
             self._on_provision_repo_update_finished
@@ -541,6 +566,266 @@ class ProvisionMainWindow(QMainWindow):
             self._repo_manager_tab.start_provision_update()
         elif index == self._tabs.indexOf(self._about_tab):
             self._refresh_about_tab()
+
+    def _open_first_use_setup(self) -> None:
+        if not self._first_use_active or self._first_use_dialog is not None:
+            return
+        dialog = FirstUseDialog(self)
+        self._first_use_dialog = dialog
+        dialog.action_requested.connect(self._run_first_use_action)
+        dialog.skip_requested.connect(self._skip_first_use_download)
+        dialog.exit_requested.connect(self._exit_first_use_setup)
+        dialog.finished.connect(
+            lambda _result, d=dialog: self._clear_first_use_dialog(d)
+        )
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        if self._first_use_catalog_error is not None:
+            self._first_use_action = "refresh"
+            dialog.set_stage(
+                0,
+                _(
+                    "Could not load stable ruyi release information: {message}",
+                    message=self._first_use_catalog_error,
+                ),
+                action="Retry",
+                skip="Continue without download",
+                kind="error",
+            )
+        elif self._pm_catalog_releases:
+            self._first_use_catalog_ready()
+
+    def _clear_first_use_dialog(self, dialog: FirstUseDialog) -> None:
+        if self._first_use_dialog is dialog:
+            self._first_use_dialog = None
+        dialog.deleteLater()
+
+    def _exit_first_use_setup(self) -> None:
+        if not self._first_use_active:
+            return
+        self._first_use_active = False
+        self._first_use_action = ""
+        operation = self._first_use_operation
+        if operation == "download":
+            dialog = self._pm_download_dialog
+            if dialog is not None:
+                dialog.reject()
+            elif isinstance(self._pm_worker, VersionDownloadWorker):
+                self._pm_worker.request_cancel()
+        elif operation == "repository":
+            self._repo_manager_tab.cancel_current_update()
+        if self._first_use_activated:
+            QTimer.singleShot(0, self._maybe_start_pm_telemetry)
+
+    def _run_first_use_action(self) -> None:
+        if not self._first_use_active:
+            return
+        action = self._first_use_action
+        if action == "refresh":
+            self._first_use_catalog_pending = True
+            self._refresh_pm_catalog()
+        elif action == "download":
+            self._start_first_use_download()
+        elif action == "activate":
+            self._start_first_use_activation()
+        elif action == "repository":
+            self._choose_first_use_repository()
+        elif action == "finish":
+            self._finish_first_use_setup()
+
+    def _skip_first_use_download(self) -> None:
+        if not self._first_use_active or self._first_use_operation:
+            return
+        self._first_use_release = None
+        self._first_use_binary = None
+        self._start_first_use_repository_step()
+
+    def _first_use_catalog_ready(self) -> None:
+        dialog = self._first_use_dialog
+        if not self._first_use_active or dialog is None:
+            return
+        if self._pm_externally_managed:
+            self._first_use_action = ""
+            dialog.set_stage(
+                0,
+                _(
+                    "This system delegates ruyi version management to the system "
+                    "package manager, so automatic setup is unavailable."
+                ),
+                skip="Continue without download",
+                kind="error",
+            )
+            return
+        stable = [
+            release
+            for release in self._pm_catalog_releases
+            if release.channel.casefold() == "stable"
+        ]
+        if not stable:
+            self._first_use_action = "refresh"
+            dialog.set_stage(
+                0,
+                _("No stable ruyi release is available for this computer."),
+                action="Retry",
+                skip="Continue without download",
+                kind="error",
+            )
+            return
+        self._first_use_release = max(
+            stable,
+            key=lambda release: version_manager.version_sort_key(release.version),
+        )
+        self._first_use_action = "download"
+        dialog.set_stage(
+            0,
+            _(
+                "Download the latest stable ruyi {version} and activate it at {path}?",
+                version=self._first_use_release.version,
+                path=self._pm_activation_link,
+            ),
+            action="Download and activate",
+            skip="Skip download",
+        )
+
+    def _start_first_use_download(self) -> None:
+        release = self._first_use_release
+        dialog = self._first_use_dialog
+        if release is None or dialog is None or self._pm_thread is not None:
+            return
+        self._first_use_operation = "download"
+        self._first_use_action = ""
+        self._first_use_binary = None
+        self._open_pm_download_dialog(release)
+        if self._pm_download_dialog is None:
+            self._first_use_operation = ""
+            self._first_use_action = "download"
+            dialog.set_stage(
+                0,
+                _("Could not open the ruyi download dialog."),
+                action="Download and activate",
+                skip="Skip download",
+                kind="error",
+            )
+        else:
+            dialog.set_stage(
+                0,
+                _("Select a download URL in the download dialog."),
+                busy=True,
+            )
+
+    def _start_first_use_activation(self) -> None:
+        path = self._first_use_binary
+        dialog = self._first_use_dialog
+        if path is None or not path.is_file() or dialog is None:
+            return
+        self._first_use_action = ""
+        self._first_use_operation = "activate"
+        dialog.set_stage(
+            1,
+            _("Activating the downloaded ruyi command..."),
+            busy=True,
+        )
+        installed = version_manager.inspect_installed_version(path)
+        if not self._start_pm_activation(installed):
+            self._first_use_operation = ""
+            self._first_use_action = "activate"
+            dialog.set_stage(
+                1,
+                _("Ruyi activation was cancelled."),
+                action="Retry activation",
+                kind="warning",
+            )
+
+    def _start_first_use_repository_step(self) -> None:
+        if not self._first_use_active:
+            self._first_use_operation = ""
+            return
+        dialog = self._first_use_dialog
+        if dialog is None:
+            return
+        self._first_use_operation = "repository"
+        self._first_use_action = ""
+        self._tabs.setCurrentWidget(self._repo_manager_tab)
+        dialog.set_stage(
+            2,
+            _("Choose the mirror used by the default ruyisdk repository."),
+        )
+        QTimer.singleShot(0, self._choose_first_use_repository)
+
+    def _choose_first_use_repository(self) -> None:
+        dialog = self._first_use_dialog
+        if (
+            not self._first_use_active
+            or dialog is None
+            or self._repo_manager_tab.is_busy
+        ):
+            return
+        self._first_use_action = ""
+        dialog.set_stage(
+            2,
+            _("Choose a mirror in the repository source dialog."),
+            busy=True,
+        )
+        if self._repo_manager_tab.choose_default_source_and_update():
+            dialog.set_stage(
+                2,
+                _("Updating the selected ruyisdk mirror..."),
+                busy=True,
+            )
+            return
+        self._first_use_action = "repository"
+        dialog.set_stage(
+            2,
+            _("Mirror selection was cancelled. Choose a mirror to continue."),
+            action="Choose mirror",
+            kind="warning",
+        )
+
+    def _on_first_use_repo_update_finished(
+        self,
+        repo_id: str,
+        success: bool,
+        message: str,
+    ) -> None:
+        if (
+            not self._first_use_active
+            or self._first_use_operation != "repository"
+            or repo_id != repo_manager.DEFAULT_REPO_ID
+        ):
+            return
+        dialog = self._first_use_dialog
+        if dialog is None:
+            return
+        if not success:
+            self._first_use_action = "repository"
+            dialog.set_stage(
+                2,
+                _("Repository update failed: {message}", message=message),
+                action="Choose mirror",
+                kind="error",
+            )
+            return
+        self._first_use_operation = ""
+        self._first_use_action = "finish"
+        self._tabs.setCurrentWidget(self._about_tab)
+        dialog.set_stage(
+            3,
+            _("First-use setup is complete. Review the result on the About page."),
+            action="Finish",
+            kind="success",
+        )
+
+    def _finish_first_use_setup(self) -> None:
+        run_telemetry_setup = self._first_use_activated
+        self._first_use_active = False
+        self._first_use_action = ""
+        self._first_use_operation = ""
+        dialog = self._first_use_dialog
+        if dialog is not None:
+            dialog.accept()
+        if run_telemetry_setup:
+            QTimer.singleShot(0, self._maybe_start_pm_telemetry)
 
     def _refresh_about_tab(self) -> None:
         if self._config_loader is not None:
@@ -570,6 +855,9 @@ class ProvisionMainWindow(QMainWindow):
     def _on_managed_repo_updated(self, repo_id: str) -> None:
         if repo_id != repo_manager.DEFAULT_REPO_ID or self._thread is not None:
             return
+        first_use_update = (
+            self._first_use_active and self._first_use_operation == "repository"
+        )
         self._reset_provision_for_repo_change()
         if self._config_loader is not None:
             try:
@@ -582,6 +870,8 @@ class ProvisionMainWindow(QMainWindow):
                     details=str(exc),
                 )
                 return
+        if first_use_update:
+            return
         self._start_repo_init()
 
     def _reset_provision_for_repo_change(self) -> None:
@@ -1212,9 +1502,15 @@ class ProvisionMainWindow(QMainWindow):
 
     def _download_selected_pm_version(self) -> None:
         release = self._selected_pm_release()
+        if release is not None:
+            self._open_pm_download_dialog(release)
+
+    def _open_pm_download_dialog(
+        self,
+        release: version_manager.RuyiRelease,
+    ) -> None:
         if (
-            release is None
-            or self._pm_thread is not None
+            self._pm_thread is not None
             or self._pm_externally_managed
             or self._pm_download_dialog is not None
         ):
@@ -1263,6 +1559,23 @@ class ProvisionMainWindow(QMainWindow):
     def _clear_pm_download_dialog(self, dialog: _VersionDownloadDialog) -> None:
         if self._pm_download_dialog is dialog and self._pm_thread is None:
             self._pm_download_dialog = None
+            if (
+                self._first_use_active
+                and self._first_use_operation == "download"
+                and self._first_use_binary is None
+            ):
+                self._first_use_operation = ""
+                self._first_use_action = "download"
+                self._cleanup_empty_first_use_data_directory()
+                setup_dialog = self._first_use_dialog
+                if setup_dialog is not None:
+                    setup_dialog.set_stage(
+                        0,
+                        _("The ruyi download dialog was closed."),
+                        action="Download and activate",
+                        skip="Skip download",
+                        kind="warning",
+                    )
 
     def _cancel_pm_download(self, dialog: _VersionDownloadDialog) -> None:
         if dialog is not self._pm_download_dialog:
@@ -1347,6 +1660,15 @@ class ProvisionMainWindow(QMainWindow):
         installed = self._selected_pm_installed_version()
         if installed is None or self._pm_thread is not None:
             return
+
+        self._start_pm_activation(installed)
+
+    def _start_pm_activation(
+        self,
+        installed: version_manager.InstalledVersion,
+    ) -> bool:
+        if self._pm_thread is not None:
+            return False
         binary = installed.path
 
         state = version_manager.read_activation_state(
@@ -1375,7 +1697,7 @@ class ProvisionMainWindow(QMainWindow):
                 QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return False
 
         self._pm_operation = "activate"
         self._logger.set_terminal_target("pm")
@@ -1397,6 +1719,7 @@ class ProvisionMainWindow(QMainWindow):
         )
         self._pm_thread = run_worker_in_thread(self._pm_worker)
         self._refresh_pm_buttons()
+        return True
 
     def _toggle_selected_pm_version_activation(self) -> None:
         installed = self._selected_pm_installed_version()
@@ -1831,24 +2154,34 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_pm_catalog_ready(self, catalog: version_manager.ReleaseCatalog) -> None:
         self._pm_catalog_releases = list(catalog.releases)
+        self._first_use_catalog_error = None
+        self._first_use_catalog_pending = False
         self._cleanup_pm_thread()
         self._pm_status.setText(_("Release information loaded."))
         self._pm_status.setToolTip(catalog.source_url)
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions()
+        self._first_use_catalog_ready()
         self._run_pending_pm_first_run_check()
 
     def _on_pm_download_finished(self, path: Path) -> None:
+        first_use_download = self._first_use_operation == "download"
         version = path.name.removeprefix("ruyi-")
         self._cleanup_pm_thread()
         self._pm_status.setText(_("Downloaded ruyi {version}.", version=version))
         self._pm_status.setToolTip(os.fspath(path))
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=version)
+        if first_use_download:
+            self._first_use_binary = path
         dialog = self._pm_download_dialog
         if dialog is not None:
             dialog.complete()
             self._pm_download_dialog = None
+        if first_use_download:
+            self._first_use_operation = ""
+            if self._first_use_active:
+                self._start_first_use_activation()
 
     def _on_pm_download_failed(self, msg: str) -> None:
         self._cleanup_pm_thread()
@@ -1861,6 +2194,7 @@ class ProvisionMainWindow(QMainWindow):
             dialog.show_failure(msg)
 
     def _on_pm_download_cancelled(self) -> None:
+        first_use_download = self._first_use_operation == "download"
         self._cleanup_pm_thread()
         self._pm_status.setText(_("Download cancelled."))
         self._pm_status.setToolTip("")
@@ -1870,11 +2204,25 @@ class ProvisionMainWindow(QMainWindow):
         if dialog is not None:
             dialog.complete_cancellation()
             self._pm_download_dialog = None
+        if first_use_download:
+            self._first_use_operation = ""
+            self._cleanup_empty_first_use_data_directory()
+            setup_dialog = self._first_use_dialog
+            if self._first_use_active and setup_dialog is not None:
+                self._first_use_action = "download"
+                setup_dialog.set_stage(
+                    0,
+                    _("The stable ruyi download was cancelled."),
+                    action="Download and activate",
+                    skip="Skip download",
+                    kind="warning",
+                )
 
     def _on_pm_activation_finished(
         self,
         result: version_manager.ActivationResult,
     ) -> None:
+        first_use_activation = self._first_use_operation == "activate"
         self._cleanup_pm_thread()
         self._pm_status.setText(
             _("Activated ruyi {version}.", version=result.state.version)
@@ -1882,6 +2230,14 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "success")
         self._refresh_pm_versions(select_installed_version=result.state.version)
+        if first_use_activation:
+            self._first_use_operation = ""
+            self._first_use_activated = True
+            if self._first_use_active:
+                self._start_first_use_repository_step()
+            else:
+                QTimer.singleShot(0, self._maybe_start_pm_telemetry)
+            return
         self._maybe_start_pm_telemetry()
 
     def _on_pm_delete_finished(
@@ -1917,7 +2273,13 @@ class ProvisionMainWindow(QMainWindow):
 
     def _on_pm_worker_failed(self, msg: str) -> None:
         operation = self._pm_operation
+        first_use_operation = self._first_use_operation
+        first_use_catalog = operation == "refresh" and self._first_use_catalog_pending
         self._cleanup_pm_thread()
+        if first_use_catalog:
+            self._first_use_catalog_pending = False
+        if first_use_operation == "activate":
+            self._first_use_operation = ""
         details = "\n\n".join(
             part for part in (self._pm_error_output.strip(), msg.strip()) if part
         )
@@ -1926,6 +2288,38 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "error")
         self._refresh_pm_versions()
+        dialog = self._first_use_dialog
+        if self._first_use_active and dialog is not None:
+            if first_use_catalog:
+                self._first_use_catalog_error = details
+                self._first_use_action = "refresh"
+                dialog.set_stage(
+                    0,
+                    _(
+                        "Could not load stable ruyi release information: {message}",
+                        message=details,
+                    ),
+                    action="Retry",
+                    skip="Continue without download",
+                    kind="error",
+                )
+                return
+            if first_use_operation == "activate":
+                self._first_use_action = "activate"
+                dialog.set_stage(
+                    1,
+                    _("Ruyi activation failed: {message}", message=details),
+                    action="Retry activation",
+                    kind="error",
+                )
+                return
+        if self._first_use_active and first_use_catalog:
+            self._first_use_catalog_error = details
+            return
+        if first_use_catalog:
+            return
+        if first_use_operation == "activate":
+            return
         _message_box(QMessageBox.critical, self, "Operation failed", details)
         if operation == "refresh":
             self._run_pending_pm_first_run_check()
@@ -2195,6 +2589,16 @@ class ProvisionMainWindow(QMainWindow):
         self._pm_thread = None
         self._pm_worker = None
         self._pm_operation = ""
+
+    def _cleanup_empty_first_use_data_directory(self) -> None:
+        """Do not let a cancelled first download suppress setup on the next run."""
+        if self._first_use_data_directory != self._pm_versions_directory.parent:
+            return
+        try:
+            self._pm_versions_directory.rmdir()
+            self._first_use_data_directory.rmdir()
+        except OSError:
+            pass
 
     def _selected_pm_release(self) -> version_manager.RuyiRelease | None:
         row = self._pm_available_table.currentRow()

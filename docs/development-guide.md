@@ -90,6 +90,9 @@ The main boundaries are:
   progress updates, and operation-specific routing in Qt views.
 - `i18n.py` coordinates application, Qt, imported ruyi, and subprocess locale
   selection.
+- `first_use.py` owns first-launch detection and the non-modal setup step/status
+  dialog; `main_window.py` owns its state transitions and reuses existing version
+  and repository operations.
 
 ## Threading and Process Model
 
@@ -112,6 +115,43 @@ child processes:
 QProcess environments must use `apply_qprocess_locale()`. Standard subprocess
 environments must include `locale_environment()` so GUI and ruyi output do not
 select different languages.
+
+## First-use Setup Flow
+
+The first-use setup is offered only when all of these conditions hold:
+
+1. `~/.local/state/ruyi/telemetry/installation.json` is absent.
+2. No executable named `ruyi` outside the running Python environment resolves on
+   `PATH`.
+3. `~/.local/share/oh-my-ruyi/` is absent.
+
+`first_use.should_offer_first_use_setup()` owns this predicate. Do not replace it
+with a separate completion marker: the file-system and PATH state are the
+contract. The PATH check removes the directory containing `sys.executable` before
+searching so the ruyi console script installed as Oh My Ruyi's Python dependency
+does not suppress the setup; it must continue searching later PATH entries for a
+real external installation. A cancelled or failed initial download must not
+leave an empty managed data directory that suppresses the next launch's offer.
+
+`FirstUseDialog` only renders current and remaining steps and exposes user
+actions. `ProvisionMainWindow` owns the orchestration:
+
+1. Fetch the existing release catalog and offer its newest `stable` entry.
+2. Reuse `_VersionDownloadDialog`, `VersionDownloadWorker`, and
+   `VersionActivationWorker` to download and activate the selected binary at the
+   normal managed link. The user still chooses a URL and sees the normal download
+   progress, retry, and cancellation behavior.
+3. Switch to Repo Management and reuse
+   `RepoManagementTab.choose_default_source_and_update()` to select and update
+   the default `ruyisdk` source.
+4. On a successful update, switch to About without starting device provisioning.
+
+The user may skip the download or exit the setup. Exiting cancels an active
+version download or repository update through their existing cancellation paths;
+it must not weaken activation, backup, or process-cleanup behavior. Repository
+updates launched by this flow use the normal `_RepoUpdateDialog` and repository
+QProcess. The update dialog closes automatically after success; failures leave
+its output available while the setup dialog offers retry or exit.
 
 ## Provisioning Flow
 
@@ -163,6 +203,9 @@ Activation and deactivation may run through a small privileged helper. Only
 managed binaries and managed symlinks may be modified. Existing unmanaged paths
 require user confirmation and are moved to numbered `.bak` files before
 activation.
+
+The first-use flow must use the same activation path and confirmation behavior;
+it may not bypass the unmanaged-command backup check or sudo helper.
 
 ## Storage Safety
 

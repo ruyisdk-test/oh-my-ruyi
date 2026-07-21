@@ -41,6 +41,7 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
         from ruyi.config import GlobalConfig
         from ruyi.utils.global_mode import EnvGlobalModeProvider
 
+        from oh_my_ruyi.first_use import FirstUseDialog
         from oh_my_ruyi.main_window import ProvisionMainWindow, _VersionDownloadDialog
         from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
         from oh_my_ruyi.repo_manager_tab import _RepoUpdateDialog
@@ -87,6 +88,13 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
         update_dialog.cancel_requested.connect(lambda: cancellations.append(True))
         update_dialog.cancel_button.click()
 
+        first_use_dialog = FirstUseDialog()
+        first_use_dialog.set_stage(
+            2,
+            "Choose the mirror used by the default ruyisdk repository.",
+            action="Choose mirror",
+        )
+
         process_environment = QProcessEnvironment()
         apply_qprocess_locale(process_environment)
         result = {
@@ -105,6 +113,9 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
             "logger": logs,
             "progress": download_dialog._progress.format(),
             "cancel_requested": cancellations,
+            "first_use_current": first_use_dialog.current_label.text(),
+            "first_use_remaining": first_use_dialog.remaining_label.text(),
+            "first_use_action": first_use_dialog.action_button.text(),
             "formatted_template": _("Version for {package}", package="foo"),
             "matched_template": _("Version for foo"),
         }
@@ -169,6 +180,9 @@ def test_zh_cn_localizes_gui_qt_ruyi_and_dynamic_text(tmp_path: Path) -> None:
     assert result["logger"] == [["I", "信息：hello"]]
     assert result["progress"] == "%p%（1.0 KiB / 2.0 KiB）"
     assert result["cancel_requested"] == [True]
+    assert result["first_use_current"] == "当前步骤：选择并更新 RuyiSDK 镜像源"
+    assert result["first_use_remaining"] == "剩余步骤：1"
+    assert result["first_use_action"] == "选择镜像源"
     assert result["formatted_template"] == "foo 的版本"
     assert result["matched_template"] == "foo 的版本"
 
@@ -191,6 +205,12 @@ def test_unsupported_locale_keeps_every_layer_in_english(tmp_path: Path) -> None
     assert result["logger"] == [["I", "info: hello"]]
     assert result["progress"] == "%p% (1.0 KiB / 2.0 KiB)"
     assert result["cancel_requested"] == [True]
+    assert (
+        result["first_use_current"]
+        == "Current step: Choose and update the RuyiSDK mirror"
+    )
+    assert result["first_use_remaining"] == "Remaining steps: 1"
+    assert result["first_use_action"] == "Choose mirror"
     assert result["formatted_template"] == "Version for foo"
     assert result["matched_template"] == "Version for foo"
 

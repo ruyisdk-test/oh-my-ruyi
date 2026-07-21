@@ -20,6 +20,7 @@ def test_package_imports_cleanly() -> None:
     from oh_my_ruyi import (  # noqa: F401
         app,
         about_tab,
+        first_use,
         host_storage,
         main_window,
         qt_logger,

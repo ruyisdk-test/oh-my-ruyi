@@ -291,6 +291,7 @@ class RepoManagementTab(QWidget):
 
     configuration_changed = Signal(str)
     repository_updated = Signal(str)
+    repository_update_finished = Signal(str, bool, str)
     busy_changed = Signal(bool)
     provision_update_finished = Signal(bool, str)
 
@@ -311,6 +312,7 @@ class RepoManagementTab(QWidget):
         self._news_process: QProcess | None = None
         self._updating_repo_id: str | None = None
         self._update_success_message = ""
+        self._close_update_dialog_on_success = False
         self._provision_update = False
         self._provision_update_succeeded = False
         self._cancel_requested = False
@@ -482,6 +484,56 @@ class RepoManagementTab(QWidget):
             default.id,
             _("RuyiSDK metadata repository is ready."),
         )
+
+    def choose_default_source_and_update(self) -> bool:
+        """Prompt for the default mirror and update it through the normal path."""
+        if self.is_busy or self._external_busy:
+            return False
+        default = next((repo for repo in self._repos if repo.is_default), None)
+        if default is None:
+            return False
+        configured = default.configured_source or repo_manager.RepoSource()
+        dialog = _RepoSourceDialog(
+            _("Choose RuyiSDK mirror"),
+            remote=default.remote or "",
+            local=configured.local or "",
+            branch=default.branch or "",
+            priority=0,
+            source_options=repo_manager.DEFAULT_REPO_SOURCES,
+            name_enabled=False,
+            priority_enabled=False,
+            parent=self,
+        )
+        dialog.help_label.setText(
+            _(
+                "Choose a RuyiSDK mirror preset or enter a custom remote URL. The "
+                "selected repository will be enabled and updated."
+            )
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        source, _priority, _name = dialog.values()
+
+        def apply_source() -> None:
+            repo_manager.edit_default_repo(self._config_path, default, source)
+            if not default.active:
+                repo_manager.set_enabled(self._config_path, default, True)
+
+        if not self._apply_mutation(
+            default.id,
+            _("Updated the default repository configuration."),
+            apply_source,
+        ):
+            return False
+        return self._start_update(
+            default.id,
+            _("Updated {repo_id}.", repo_id=default.id),
+            close_dialog_on_success=True,
+        )
+
+    def cancel_current_update(self) -> None:
+        """Cancel an active repository update using the existing process path."""
+        self._cancel_process()
 
     def reload(self) -> None:
         if self.is_busy:
@@ -773,11 +825,18 @@ class RepoManagementTab(QWidget):
         self._set_status(success_message, None)
         return True
 
-    def _start_update(self, repo_id: str, success_message: str) -> None:
+    def _start_update(
+        self,
+        repo_id: str,
+        success_message: str,
+        *,
+        close_dialog_on_success: bool = False,
+    ) -> bool:
         if self.is_busy or self._external_busy:
-            return
+            return False
         self._updating_repo_id = repo_id
         self._update_success_message = success_message
+        self._close_update_dialog_on_success = close_dialog_on_success
         self._cancel_requested = False
         self._process_output.clear()
         dialog = _RepoUpdateDialog(repo_id, self)
@@ -825,6 +884,7 @@ class RepoManagementTab(QWidget):
         self._refresh_buttons()
         process.start()
         dialog.open()
+        return True
 
     def _read_process_output(self) -> None:
         if self._process is None:
@@ -912,8 +972,10 @@ class RepoManagementTab(QWidget):
             process.deleteLater()
         repo_id = self._updating_repo_id
         provision_update = self._provision_update
+        close_dialog_on_success = self._close_update_dialog_on_success
         self._updating_repo_id = None
         self._provision_update = False
+        self._close_update_dialog_on_success = False
         self._cancel_requested = False
         self._process_output.clear()
         dialog = self._update_dialog
@@ -930,10 +992,14 @@ class RepoManagementTab(QWidget):
             if details and not dialog.log.toPlainText().strip():
                 dialog.log.append_plain_status(details)
             dialog.complete(success)
+            if success and close_dialog_on_success:
+                dialog.accept()
         if success and (repo_id == repo_manager.DEFAULT_REPO_ID or provision_update):
             self._provision_update_succeeded = True
         if success and repo_id is not None and not provision_update:
             self.repository_updated.emit(repo_id)
+        if repo_id is not None and not provision_update:
+            self.repository_update_finished.emit(repo_id, success, message)
         if provision_update:
             self.provision_update_finished.emit(success, message)
 

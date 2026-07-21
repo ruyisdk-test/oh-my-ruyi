@@ -32,6 +32,9 @@ Use this map to find the owning boundary:
 - Application bootstrap and locale initialization: `oh_my_ruyi/app.py`.
 - Top-level tabs, version UI, and provisioning state machine:
   `oh_my_ruyi/main_window.py`.
+- First-use detection and setup step/status UI: `oh_my_ruyi/first_use.py`; the
+  main-window handlers orchestrate it using existing version and repository
+  operations.
 - Mutable provisioning selections and invalidation: `oh_my_ruyi/state.py`.
 - Qt-free ruyi provisioning boundary: `oh_my_ruyi/ruyi_facade.py`.
 - QThread workers, flashing interception, cancellation, and privileged helpers:
@@ -86,6 +89,14 @@ Use this map to find the owning boundary:
 - Activation and deactivation may use sudo helpers. They may modify only managed
   binaries and managed symlinks. Existing unmanaged paths require confirmation
   and a numbered `.bak` backup.
+- The first-use flow must reuse the normal download, activation, and repository
+  update paths. It may never bypass sudo, unmanaged-command backup, cancellation,
+  or process-cleanup safeguards.
+- First-use downloads must open the existing `_VersionDownloadDialog`; mirror
+  updates must open the existing `_RepoUpdateDialog` and start the normal
+  repository QProcess. Keep URL selection, progress, retry, cancellation, and
+  update output in those owning dialogs instead of duplicating them in the
+  setup dialog.
 - Tests must mock network, privilege, and destructive-command boundaries unless
   a test is explicitly an integration test.
 
@@ -119,6 +130,16 @@ Use this map to find the owning boundary:
 - Do not edit `uv.lock` unless dependency resolution is intentionally changing.
 - Do not revert unrelated worktree changes. Inspect the final diff for generated
   files, absolute local paths, secrets, and accidental metadata churn.
+- First-use setup is offered only if telemetry installation state is absent, no
+  external `ruyi` resolves on `PATH`, and the managed data root is absent. The
+  ruyi console script beside `sys.executable` belongs to this application's
+  Python dependency and is ignored, but later PATH entries must still be
+  searched. Do not add a separate completion marker. A failed or cancelled
+  initial download must not leave an empty managed data root that suppresses the
+  offer on the next launch.
+- The first-use dialog is a step/status surface, not another implementation
+  of downloads, activation, or repository updates. Its completion path goes to
+  About after the chosen `ruyisdk` source updates; it must not start provisioning.
 
 ## Verification
 

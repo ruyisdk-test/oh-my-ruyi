@@ -2,6 +2,8 @@
 
 (如意宝 in Chinese)
 
+Newly designed [ruyi-device-gui](https://github.com/weilinfox/ruyi-device-gui).
+
 A PySide6 management frontend for `ruyi`, with package manager version control
 and device provisioning in one tabbed application.
 
@@ -16,6 +18,8 @@ from ruyi metadata and its provision strategy plugins.
 - Preset and user-local repository management through ruyi's configuration API.
 - Stable and testing ruyi release discovery with a fallback source.
 - Per-user standalone ruyi downloads and activation of the managed command.
+- An optional first-use setup flow for downloading the latest stable ruyi,
+  choosing a RuyiSDK metadata mirror, and updating it.
 - First-install telemetry choices using ruyi's native flow.
 - A single-window provisioning flow with visible steps and recovery actions.
 - Device, variant, image, package version, package confirmation, download,
@@ -64,6 +68,19 @@ uv run python -m oh_my_ruyi
 
 Running from a plain TTY or an SSH session without `DISPLAY` or
 `WAYLAND_DISPLAY` will fail at Qt startup.
+
+## First-use Setup
+
+On first use, Oh My Ruyi offers a setup flow when no ruyi telemetry installation
+state exists, no `ruyi` command outside the application's Python environment is
+found on `PATH`, and
+`~/.local/share/oh-my-ruyi/` does not exist. The flow can be exited at any time.
+
+It offers to download and activate the latest stable ruyi release at
+`/usr/local/bin/ruyi`. You can skip that download and continue to choose the
+default `ruyisdk` metadata mirror. After the selected mirror is updated, the GUI
+opens the About tab. Skipping or exiting does not record completion, so the setup
+remains available on a later launch while the same conditions hold.
 
 ## Localization
 
