@@ -5,7 +5,8 @@ import importlib.metadata
 import json
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QFormLayout, QSizePolicy
 
 from oh_my_ruyi import __version__
 from oh_my_ruyi.about_tab import AboutTab, application_version, telemetry_summary
@@ -74,3 +75,42 @@ def test_about_tab_shows_two_version_panels(qtbot, tmp_path: Path, monkeypatch) 
     tab.start_path_probe()
     assert "No executable named ruyi" in tab.path_version.toPlainText()
     assert tab.telemetry_mode.text() == "Off"
+
+
+def test_telemetry_form_expands_left_aligned_without_wrapping(
+    qtbot,
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _app = QApplication.instance() or QApplication([])
+
+    class Config:
+        telemetry_mode = "on"
+        state_root = tmp_path
+
+    monkeypatch.setattr(
+        "oh_my_ruyi.about_tab.telemetry_summary",
+        lambda _config: (
+            "On",
+            "Next upload window: 2026-07-23 08:00 CST - 08:00 CST.",
+        ),
+    )
+    tab = AboutTab(
+        Config(),
+        activation_link=tmp_path / "ruyi",
+        versions_directory=tmp_path / "versions",
+    )
+    qtbot.addWidget(tab)
+
+    telemetry_form = tab.telemetry_schedule.parentWidget().layout()
+    assert isinstance(telemetry_form, QFormLayout)
+    assert telemetry_form.fieldGrowthPolicy() == (
+        QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+    )
+    assert telemetry_form.formAlignment() & Qt.AlignmentFlag.AlignLeft
+    assert telemetry_form.labelAlignment() & Qt.AlignmentFlag.AlignLeft
+    assert tab.telemetry_schedule.alignment() & Qt.AlignmentFlag.AlignLeft
+    assert tab.telemetry_schedule.sizePolicy().horizontalPolicy() == (
+        QSizePolicy.Policy.Expanding
+    )
+    assert not tab.telemetry_schedule.wordWrap()

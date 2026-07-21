@@ -10,13 +10,14 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer
+from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -143,10 +144,21 @@ class AboutTab(QWidget):
 
         telemetry_box = QGroupBox("Telemetry")
         telemetry_form = QFormLayout(telemetry_box)
+        telemetry_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        telemetry_form.setFormAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        telemetry_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
         self.telemetry_mode = QLabel()
         self.telemetry_schedule = QLabel()
-        self.telemetry_mode.setWordWrap(True)
-        self.telemetry_schedule.setWordWrap(True)
+        for label in (self.telemetry_mode, self.telemetry_schedule):
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            label.setWordWrap(False)
         telemetry_form.addRow("Current status", self.telemetry_mode)
         telemetry_form.addRow("Next upload", self.telemetry_schedule)
         root.addWidget(telemetry_box)
