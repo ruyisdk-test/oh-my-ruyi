@@ -66,7 +66,12 @@ from .first_use import FirstUseDialog
 from .i18n import apply_qprocess_locale, _, translate_widget_tree
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
-from .rich_output import RICH_TERMINAL_ENV, RichTextView, strip_terminal_controls
+from .rich_output import (
+    RICH_TERMINAL_ENV,
+    RichTextView,
+    rich_to_html,
+    strip_terminal_controls,
+)
 from .state import WizardState
 from .workers import (
     FlashWorker,
@@ -2528,16 +2533,17 @@ class ProvisionMainWindow(QMainWindow):
     def _on_flash_yes_no_requested(
         self, prompt: str, default: bool, response: dict
     ) -> None:
-        ret = _message_box(
-            QMessageBox.question,
-            self,
-            "Flashing needs confirmation",
-            prompt,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-            if default
-            else QMessageBox.StandardButton.No,
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(_("Flashing needs confirmation"))
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(rich_to_html(prompt, end=""))
+        buttons = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        box.setStandardButtons(buttons)
+        box.setDefaultButton(
+            QMessageBox.StandardButton.Yes if default else QMessageBox.StandardButton.No
         )
+        ret = box.exec()
         response["answer"] = ret == QMessageBox.StandardButton.Yes
 
     def _on_flash_password_requested(self, prompt: str, response: dict) -> None:

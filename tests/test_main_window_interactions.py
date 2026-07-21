@@ -1878,6 +1878,35 @@ def test_review_steps_render_ruyi_rich_markup(
     assert "color:" in window._review_steps.toHtml()
 
 
+def test_flash_confirmation_renders_ruyi_rich_markup(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_exec(box) -> int:  # noqa: ANN001
+        captured["text"] = box.text()
+        captured["format"] = box.textFormat()
+        captured["default"] = box.standardButton(box.defaultButton())
+        return int(main_window.QMessageBox.StandardButton.Yes)
+
+    monkeypatch.setattr(main_window.QMessageBox, "exec", fake_exec)
+    response: dict[str, bool] = {}
+
+    window._on_flash_yes_no_requested(
+        "Do you want to retry the command with [yellow]sudo[/]?",
+        False,
+        response,
+    )
+
+    assert "[yellow]" not in str(captured["text"])
+    assert "sudo" in str(captured["text"])
+    assert "color:" in str(captured["text"])
+    assert captured["format"] == Qt.TextFormat.RichText
+    assert captured["default"] == main_window.QMessageBox.StandardButton.No
+    assert response["answer"] is True
+
+
 def test_successful_flash_advances_to_done_and_can_return_to_flash(
     window: ProvisionMainWindow,
 ) -> None:
