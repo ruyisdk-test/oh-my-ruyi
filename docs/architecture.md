@@ -13,7 +13,7 @@ oh_my_ruyi.__main__
       -> GlobalConfig + QtRuyiLogger
       -> main_window.py
           -> first_use.py / repo_manager_tab.py / about_tab.py
-          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog}.py
+          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables}.py
           -> worker_services.py / workers.py -> worker_runtime.py
           -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
           -> QProcess child modules in processes/
