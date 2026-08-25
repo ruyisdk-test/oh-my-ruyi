@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
-from oh_my_ruyi.first_use import FirstUseDialog, should_offer_first_use_setup
+from oh_my_ruyi.ui.views.first_use import FirstUseDialog, should_offer_first_use_setup
 
 
 def test_first_use_requires_missing_telemetry_path_command_and_data_dir(

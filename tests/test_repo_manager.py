@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from ruyi.utils import xdg_basedir
 
-from oh_my_ruyi import repo_manager
+from oh_my_ruyi.infra import repo_manager
 
 
 def test_reads_default_and_additional_repos_in_config_order(tmp_path: Path) -> None:

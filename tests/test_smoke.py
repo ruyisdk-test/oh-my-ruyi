@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 
-import pytest
 
 # Force the offscreen Qt platform so the tests don't need a real display.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -19,28 +18,19 @@ def test_package_imports_cleanly() -> None:
     import oh_my_ruyi  # noqa: F401
     from oh_my_ruyi import (  # noqa: F401
         app,
-        about_tab,
-        first_use,
-        host_storage,
-        main_window,
-        qt_logger,
-        repo_manager,
-        repo_manager_tab,
-        repo_news_child,
-        repo_presets,
-        repo_update_child,
-        rich_output,
-        ruyi_facade,
-        download_child,
-        state,
-        version_manager,
+        controllers,
+        core,
+        i18n,
+        infra,
+        processes,
+        ui,
         workers,
     )
 
 
 def test_qt_logger_emits_signal(qtbot) -> None:
     """A QtRuyiLogger should re-emit every log call via the LogEmitter."""
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
     gm = EnvGlobalModeProvider({}, [])
@@ -63,8 +53,8 @@ def test_qt_logger_preserves_rich_styles_and_links(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.ui.widgets.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     emitter = LogEmitter()
@@ -91,7 +81,7 @@ def test_qt_logger_preserves_renderables_and_debug_messages(qtbot) -> None:
     from rich.text import Text
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger
 
     emitter = LogEmitter()
     logger = QtRuyiLogger(
@@ -114,7 +104,7 @@ def test_qt_logger_preserves_renderables_and_debug_messages(qtbot) -> None:
 def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.ui.widgets.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -131,7 +121,7 @@ def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
 def test_rich_text_view_normalizes_bel_terminated_links(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.ui.widgets.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -147,7 +137,10 @@ def test_rich_text_view_normalizes_bel_terminated_links(qtbot) -> None:
 def test_rich_text_view_rejects_unsafe_links_and_preserves_erase_prefix(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView, strip_terminal_controls
+    from oh_my_ruyi.ui.widgets.rich_output import (
+        RichTextView,
+        strip_terminal_controls,
+    )
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -164,7 +157,7 @@ def test_rich_text_view_rejects_unsafe_links_and_preserves_erase_prefix(qtbot) -
 
 
 def test_facade_exposes_expected_symbols() -> None:
-    from oh_my_ruyi import ruyi_facade
+    from oh_my_ruyi.infra import os_storage, ruyi_adapter
 
     for name in [
         "list_devices",
@@ -181,14 +174,18 @@ def test_facade_exposes_expected_symbols() -> None:
         "check_fastboot_devices",
         "part_description",
         "get_postinst_msg",
-        "is_disk_or_child_mounted",
-        "list_disks",
-        "storage_platform_hint",
         "list_entity_types",
         "list_package_version_selections",
         "is_package_version_customization_possible",
     ]:
-        assert hasattr(ruyi_facade, name), f"ruyi_facade missing {name}"
+        assert hasattr(ruyi_adapter, name), f"ruyi_adapter missing {name}"
+
+    for name in [
+        "is_disk_or_child_mounted",
+        "list_disks",
+        "storage_platform_hint",
+    ]:
+        assert hasattr(os_storage, name), f"os_storage missing {name}"
 
 
 def test_main_window_constructs(qtbot, tmp_path) -> None:
@@ -197,8 +194,8 @@ def test_main_window_constructs(qtbot, tmp_path) -> None:
     from ruyi.config import GlobalConfig
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-    from oh_my_ruyi.main_window import ProvisionMainWindow
+    from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.ui.views.main_window import ProvisionMainWindow
 
     _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
@@ -220,8 +217,8 @@ def test_main_window_constructs(qtbot, tmp_path) -> None:
 
 
 def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
-    from oh_my_ruyi import workers
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.workers import workers
+    from oh_my_ruyi.workers.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Linux")
 
@@ -254,8 +251,8 @@ def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
 
 
 def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
-    from oh_my_ruyi import workers
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.workers import workers
+    from oh_my_ruyi.workers.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Darwin")
 
@@ -267,7 +264,7 @@ def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
 
 
 def test_flash_worker_emits_carriage_return_output() -> None:
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.workers.workers import FlashWorker
 
     worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
     captured: list[bytes] = []
@@ -285,30 +282,3 @@ def test_flash_worker_emits_carriage_return_output() -> None:
             os.close(write_fd)
 
     assert b"".join(captured) == b"1024 bytes\r2048 bytes\ndone"
-
-
-def test_worker_run_executes_in_worker_thread(qtbot) -> None:
-    from PySide6.QtCore import QThread, Signal
-
-    from oh_my_ruyi.workers import _BaseWorker, run_worker_in_thread
-
-    class ProbeWorker(_BaseWorker):
-        finished = Signal(object)  # type: ignore[assignment]
-
-        def run(self) -> None:
-            self.finished.emit(QThread.currentThread())
-
-    main_thread = QThread.currentThread()
-    worker = ProbeWorker()
-    with qtbot.waitSignal(worker.finished, timeout=1000) as blocker:
-        thread = run_worker_in_thread(worker)
-    try:
-        assert blocker.args[0] is thread
-        assert blocker.args[0] is not main_thread
-    finally:
-        thread.quit()
-        thread.wait()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

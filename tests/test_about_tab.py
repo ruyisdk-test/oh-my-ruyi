@@ -9,7 +9,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QFormLayout, QSizePolicy
 
 from oh_my_ruyi import __version__
-from oh_my_ruyi.about_tab import AboutTab, application_version, telemetry_summary
+from oh_my_ruyi.ui.views.about_tab import (
+    AboutTab,
+    application_version,
+    telemetry_summary,
+)
 
 
 def test_application_version_matches_installed_distribution() -> None:
@@ -59,7 +63,7 @@ def test_about_tab_shows_two_version_panels(qtbot, tmp_path: Path, monkeypatch) 
         state_root = tmp_path
 
     monkeypatch.setattr(
-        "oh_my_ruyi.about_tab.version_manager.read_path_state",
+        "oh_my_ruyi.infra.version_manager.read_path_state",
         lambda *_args, **_kwargs: type("State", (), {"command": None})(),
     )
     tab = AboutTab(
@@ -69,6 +73,7 @@ def test_about_tab_shows_two_version_panels(qtbot, tmp_path: Path, monkeypatch) 
     )
     qtbot.addWidget(tab)
 
+    qtbot.waitUntil(lambda: tab._bundled_process is None, timeout=15000)
     assert "Ruyi " in tab.bundled_version.toPlainText()
     assert tab._title.text() == "<b>About Oh My Ruyi</b>"
     assert tab._version_label.text() == f"Version {application_version()}"
@@ -89,12 +94,13 @@ def test_telemetry_form_expands_left_aligned_without_wrapping(
         state_root = tmp_path
 
     monkeypatch.setattr(
-        "oh_my_ruyi.about_tab.telemetry_summary",
+        "oh_my_ruyi.ui.views.about_tab.telemetry_summary",
         lambda _config: (
             "On",
             "Next upload window: 2026-07-23 08:00 CST - 08:00 CST.",
         ),
     )
+    monkeypatch.setattr(AboutTab, "_start_bundled_probe", lambda self: None)
     tab = AboutTab(
         Config(),
         activation_link=tmp_path / "ruyi",

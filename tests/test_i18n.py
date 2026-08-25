@@ -41,11 +41,14 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
         from ruyi.config import GlobalConfig
         from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-        from oh_my_ruyi.first_use import FirstUseDialog
-        from oh_my_ruyi.main_window import ProvisionMainWindow, _VersionDownloadDialog
-        from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-        from oh_my_ruyi.repo_manager_tab import _RepoUpdateDialog
-        from oh_my_ruyi.version_manager import RuyiRelease
+        from oh_my_ruyi.ui.views.first_use import FirstUseDialog
+        from oh_my_ruyi.ui.views.main_window import ProvisionMainWindow
+        from oh_my_ruyi.ui.views.version_dialogs import (
+            VersionDownloadDialog as _VersionDownloadDialog,
+        )
+        from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger
+        from oh_my_ruyi.ui.views.repo_manager_tab import _RepoUpdateDialog
+        from oh_my_ruyi.infra.version_manager import RuyiRelease
 
         root = Path(os.environ["I18N_TEST_ROOT"])
         gm = EnvGlobalModeProvider({}, [])
@@ -67,6 +70,11 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
             system_ruyi_config=root / "etc" / "ruyi" / "config.toml",
             repo_config_path=root / "config" / "ruyi" / "config.toml",
         )
+
+        bundled_probe = window._about_tab._bundled_process
+        if bundled_probe is not None:
+            bundled_probe.waitForFinished(15000)
+            QApplication.processEvents()
 
         standard_buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok

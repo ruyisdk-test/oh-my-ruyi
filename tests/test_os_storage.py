@@ -1,0 +1,316 @@
+from __future__ import annotations
+
+import plistlib
+from pathlib import Path
+from types import SimpleNamespace
+import os
+
+from oh_my_ruyi.infra import os_storage
+
+
+def test_disk_mount_detection_checks_children(monkeypatch) -> None:
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        os_storage,
+        "_linux_related_block_device_ids",
+        lambda _path: {101, 202},
+    )
+    monkeypatch.setattr(os_storage, "_mounted_block_device_ids", lambda: {202})
+    monkeypatch.setattr(
+        os_storage,
+        "is_path_mounted_blkdev",
+        lambda _path: False,
+    )
+
+    assert os_storage.is_disk_or_child_mounted("/dev/sda")
+
+
+def test_linux_mount_detection_fails_closed_when_topology_is_unknown(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(
+        os_storage,
+        "_linux_related_block_device_ids",
+        lambda _path: None,
+    )
+
+    assert os_storage.is_disk_or_child_mounted("/dev/sda")
+
+
+def test_linux_mount_detection_follows_holder_devices(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Linux")
+    disk = tmp_path / "sda"
+    partition = disk / "sda1"
+    holder = partition / "holders" / "dm-0"
+    holder.mkdir(parents=True)
+    (disk / "dev").write_text("8:0")
+    (partition / "dev").write_text("8:1")
+    (partition / "partition").write_text("")
+    (holder / "dev").write_text("253:0")
+    monkeypatch.setattr(
+        os_storage, "_path_block_device_id", lambda _path: os.makedev(8, 0)
+    )
+    monkeypatch.setattr(os_storage, "_linux_sysfs_node", lambda _device_id: disk)
+    monkeypatch.setattr(
+        os_storage,
+        "_mounted_block_device_ids",
+        lambda: {os.makedev(253, 0)},
+    )
+
+    assert os_storage.is_disk_or_child_mounted("/dev/sda")
+
+
+def test_linux_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
+    class FakePath:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def __truediv__(self, _name):
+            return self
+
+    fake_paths = [FakePath("sdc"), FakePath("sda"), FakePath("sdb"), FakePath("sdd")]
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(os_storage.pathlib.Path, "iterdir", lambda _path: fake_paths)
+    monkeypatch.setattr(os_storage.pathlib.Path, "is_block_device", lambda _path: True)
+    monkeypatch.setattr(os_storage, "_skip_block_device_name", lambda _name: False)
+    monkeypatch.setattr(os_storage, "_sysfs_disk_size", lambda _dev: "32.0 GiB")
+    monkeypatch.setattr(os_storage, "_read_sysfs_text", lambda _path: "Test Disk")
+    monkeypatch.setattr(
+        os_storage,
+        "is_disk_or_child_mounted",
+        lambda path: path in {"/dev/sda", "/dev/sdc"},
+    )
+
+    disks = os_storage.list_disks()
+
+    assert [disk.path for disk in disks] == [
+        "/dev/sdb",
+        "/dev/sdd",
+        "/dev/sda",
+        "/dev/sdc",
+    ]
+    assert [disk.mounted for disk in disks] == [False, False, True, True]
+    assert "mounted" in disks[2].display_name
+
+
+def test_darwin_disks_sort_unmounted_before_mounted(monkeypatch) -> None:
+    def fake_diskutil(*args: str):
+        if args == ("list", "-plist"):
+            return {"WholeDisks": ["disk2", "disk1"]}
+        if args == ("info", "-plist", "disk1"):
+            return {
+                "TotalSize": 1024,
+                "MediaName": "Mounted",
+                "VirtualOrPhysical": "Physical",
+            }
+        if args == ("info", "-plist", "disk2"):
+            return {
+                "TotalSize": 2048,
+                "MediaName": "Unmounted",
+                "VirtualOrPhysical": "Physical",
+            }
+        return None
+
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(os_storage, "_darwin_diskutil_plist", fake_diskutil)
+    monkeypatch.setattr(
+        os_storage,
+        "_darwin_io_registry_id",
+        lambda disk: {"disk1": 101, "disk2": 202}[disk],
+    )
+    monkeypatch.setattr(
+        os_storage,
+        "_darwin_disk_or_child_mounted",
+        lambda path: path == "/dev/rdisk1",
+    )
+
+    disks = os_storage.list_disks()
+
+    assert [disk.path for disk in disks] == ["/dev/rdisk2", "/dev/rdisk1"]
+    assert [disk.mounted for disk in disks] == [False, True]
+    assert all(disk.fingerprint for disk in disks)
+
+
+def test_darwin_apfs_volume_marks_physical_store_mounted(monkeypatch) -> None:
+    def fake_diskutil(*args: str):
+        if args == ("list", "-plist", "disk0"):
+            return {
+                "AllDisksAndPartitions": [
+                    {
+                        "DeviceIdentifier": "disk0",
+                        "Partitions": [
+                            {
+                                "DeviceIdentifier": "disk0s2",
+                                "Content": "Apple_APFS",
+                            }
+                        ],
+                    }
+                ]
+            }
+        if args == ("apfs", "list", "-plist"):
+            return {
+                "Containers": [
+                    {
+                        "PhysicalStores": [{"DeviceIdentifier": "disk0s2"}],
+                        "Volumes": [
+                            {
+                                "DeviceIdentifier": "disk3s1",
+                                "MountPoint": "/",
+                            }
+                        ],
+                    }
+                ]
+            }
+        return {"DeviceIdentifier": args[-1], "MountPoint": None}
+
+    monkeypatch.setattr(os_storage, "_darwin_disk_identifier", lambda _path: "disk0")
+    monkeypatch.setattr(os_storage, "_darwin_diskutil_plist", fake_diskutil)
+
+    assert os_storage._darwin_disk_or_child_mounted("/dev/rdisk0")
+
+
+def test_darwin_file_named_disk_is_not_treated_as_device(
+    monkeypatch, tmp_path: Path
+) -> None:
+    image = tmp_path / "disk.img"
+    image.touch()
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(os_storage, "is_path_mounted_blkdev", lambda _path: False)
+
+    assert not os_storage.is_native_disk_path(str(image))
+    assert not os_storage.is_disk_or_child_mounted(str(image))
+    assert os_storage.device_fingerprint(str(image)).startswith("file:")
+
+
+def test_darwin_fingerprint_requires_stable_media_or_registry_id() -> None:
+    assert (
+        os_storage._darwin_fingerprint_from_info(
+            {
+                "DeviceIdentifier": "disk4",
+                "Size": 64_000_000_000,
+                "MediaName": "Generic STORAGE DEVICE Media",
+            }
+        )
+        is None
+    )
+    fingerprint = os_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "MediaUUID": "stable-media-id",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        }
+    )
+    assert fingerprint is not None
+    assert "stable-media-id" in fingerprint
+    assert "64000000000" in fingerprint
+
+    fingerprint = os_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        },
+        registry_id=123456,
+    )
+    assert fingerprint is not None
+    assert "123456" in fingerprint
+    assert "64000000000" in fingerprint
+
+    replacement = os_storage._darwin_fingerprint_from_info(
+        {
+            "DeviceIdentifier": "disk4",
+            "Size": 64_000_000_000,
+            "MediaName": "Generic STORAGE DEVICE Media",
+        },
+        registry_id=123457,
+    )
+    assert replacement != fingerprint
+
+
+def test_darwin_disk_fingerprint_only_queries_registry_without_uuid(
+    monkeypatch,
+) -> None:
+    registry_queries: list[str] = []
+    monkeypatch.setattr(
+        os_storage,
+        "_darwin_io_registry_id",
+        lambda disk: registry_queries.append(disk) or 123456,
+    )
+
+    with_uuid = os_storage._darwin_disk_fingerprint(
+        {"DeviceIdentifier": "disk4", "MediaUUID": "stable-media-id"},
+        "disk4",
+    )
+    without_uuid = os_storage._darwin_disk_fingerprint(
+        {"DeviceIdentifier": "disk5", "TotalSize": 32_000_000_000},
+        "disk5",
+    )
+
+    assert with_uuid is not None and "stable-media-id" in with_uuid
+    assert without_uuid is not None and "123456" in without_uuid
+    assert registry_queries == ["disk5"]
+
+
+def test_darwin_io_registry_id_matches_whole_disk(monkeypatch) -> None:
+    payload = plistlib.dumps(
+        [
+            {
+                "BSD Name": "disk4",
+                "IORegistryEntryID": 123456,
+                "IORegistryEntryChildren": [
+                    {"BSD Name": "disk4s1", "IORegistryEntryID": 654321}
+                ],
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        os_storage.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=payload),
+    )
+
+    assert os_storage._darwin_io_registry_id("disk4") == 123456
+
+
+def test_darwin_diskutil_rejects_invalid_plist(monkeypatch) -> None:
+    monkeypatch.setattr(
+        os_storage.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=b"not a plist"),
+    )
+
+    assert os_storage._darwin_diskutil_plist("list", "-plist") is None
+
+
+def test_storage_platform_hints(monkeypatch) -> None:
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Windows")
+    assert "WSL2" in os_storage.storage_platform_hint()
+
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Darwin")
+    assert "/dev/rdiskN" in os_storage.storage_platform_hint()
+
+    monkeypatch.setattr(os_storage.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(os_storage, "_is_wsl2", lambda: True)
+    assert "usbipd" in os_storage.storage_platform_hint()
+
+
+def test_read_sysfs_text_handles_missing_path(tmp_path: Path) -> None:
+    assert os_storage._read_sysfs_text(tmp_path / "missing") is None
+
+
+def test_btrfs_groups_expand_mounted_member(monkeypatch, tmp_path: Path) -> None:
+    filesystem = tmp_path / "filesystem" / "devices"
+    first = filesystem / "1"
+    second = filesystem / "2"
+    first.mkdir(parents=True)
+    second.mkdir()
+    (first / "dev").write_text("8:1")
+    (second / "dev").write_text("8:17")
+
+    groups = os_storage._btrfs_device_groups(tmp_path)
+
+    assert groups == [{os.makedev(8, 1), os.makedev(8, 17)}]

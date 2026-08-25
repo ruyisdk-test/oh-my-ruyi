@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from oh_my_ruyi import version_manager
+from oh_my_ruyi.infra import version_manager
 
 
 def _elf_header(machine: int, *, elf_class: int = 2) -> bytes:

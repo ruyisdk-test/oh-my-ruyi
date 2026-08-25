@@ -29,25 +29,26 @@ Before a general change, read:
 
 Use this map to find the owning boundary:
 
-- Application bootstrap and locale initialization: `oh_my_ruyi/app.py`.
+- Application bootstrap and locale initialization: `oh_my_ruyi/app/bootstrap.py` and `oh_my_ruyi/i18n.py`.
 - Top-level tabs, version UI, and provisioning state machine:
-  `oh_my_ruyi/main_window.py`.
-- First-use detection and setup step/status UI: `oh_my_ruyi/first_use.py`; the
+  `oh_my_ruyi/ui/views/main_window.py`.
+- First-use detection and setup step/status UI: `oh_my_ruyi/ui/views/first_use.py`; the
   main-window handlers orchestrate it using existing version and repository
   operations.
-- Mutable provisioning selections and invalidation: `oh_my_ruyi/state.py`.
-- Qt-free ruyi provisioning boundary: `oh_my_ruyi/ruyi_facade.py`.
+- Mutable provisioning selections, FSM, and invalidation: `oh_my_ruyi/core/state.py`,
+  `oh_my_ruyi/core/state_machine.py` and `oh_my_ruyi/core/models.py`.
+- Qt-free ruyi provisioning boundary: `oh_my_ruyi/infra/ruyi_adapter.py`.
 - QThread workers, flashing interception, cancellation, and privileged helpers:
-  `oh_my_ruyi/workers.py`.
-- Repository model and mutations: `oh_my_ruyi/repo_manager.py`.
-- Repository UI and update/news processes: `oh_my_ruyi/repo_manager_tab.py`,
-  `oh_my_ruyi/repo_update_child.py`, and `oh_my_ruyi/repo_news_child.py`.
+  `oh_my_ruyi/workers/workers.py` and `oh_my_ruyi/workers/worker_manager.py`.
+- Repository model and mutations: `oh_my_ruyi/infra/repo_manager.py`.
+- Repository UI and update/news processes: `oh_my_ruyi/ui/views/repo_manager_tab.py`,
+  `oh_my_ruyi/processes/repo_update_child.py`, and `oh_my_ruyi/processes/repo_news_child.py`.
 - Release discovery, downloads, activation, PATH state, and telemetry:
-  `oh_my_ruyi/version_manager.py`.
+  `oh_my_ruyi/infra/version_manager.py`.
 - Disk discovery, mount topology, and target fingerprints:
-  `oh_my_ruyi/host_storage.py`.
-- Rich and ruyi output routing: `oh_my_ruyi/qt_logger.py` and
-  `oh_my_ruyi/rich_output.py`.
+  `oh_my_ruyi/infra/os_storage.py`.
+- Rich and ruyi output routing: `oh_my_ruyi/ui/widgets/qt_logger.py` and
+  `oh_my_ruyi/ui/widgets/rich_output.py`.
 - Locale routing and translation helpers: `oh_my_ruyi/i18n.py` and
   `oh_my_ruyi/locales/zh_CN.json`.
 - Tests: `tests/test_<owning_module>.py`; cross-window flows are mainly in
@@ -65,7 +66,7 @@ Use this map to find the owning boundary:
 - `main_window.py` owns provisioning transitions. Moving back to an earlier
   step invalidates dependent `WizardState`; stale prepared or storage state
   must not survive changed inputs.
-- `ruyi_facade.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
+- `ruyi_adapter.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
   without becoming a second implementation of ruyi.
 - Repository TOML may be parsed for ordered display and validation, but all
   mutations go through ruyi's `ConfigEditor`. Do not introduce another writer.
