@@ -12,11 +12,14 @@ from .common import (
     VersionTableItem,
     message_box,
 )
+from .first_use_dialog import FirstUseDialog, SETUP_STEPS
 from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .version_dialogs import VersionDownloadDialog
 
 __all__ = [
     "FASTBOOT_PROGRAM",
+    "FirstUseDialog",
+    "SETUP_STEPS",
     "STORAGE_FINGERPRINT_ROLE",
     "STORAGE_MOUNTED_ROLE",
     "VersionDownloadDialog",
