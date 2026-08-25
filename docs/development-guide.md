@@ -92,8 +92,9 @@ The main boundaries are:
 - `core/repo_presets.py` owns immutable preset data; `repo_presets.py` remains a
   compatibility import.
 - `ui/common.py` owns shared Qt constants, translated message boxes, and
-  semantic version table sorting. `ui/version_dialogs.py` owns the reusable
-  version download dialog.
+  semantic version table sorting. `ui/version_dialogs.py`,
+  `ui/repo_dialogs.py`, and `ui/first_use_dialog.py` own reusable dialogs;
+  they expose only signals and display/state methods, never workers or I/O.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.
@@ -106,14 +107,17 @@ The main boundaries are:
   mutations through ruyi's configuration editor.
 - `host_storage.py` owns platform-specific disk discovery, mount checks, and
   device fingerprints.
-- `workers.py` wraps blocking operations in QObjects that run on QThreads;
-  `worker_runtime.py` centralizes queued startup and cleanup.
+- `worker_services.py` wraps repository, storage, release, activation, and
+  telemetry operations in QObjects that run on QThreads. `workers.py` owns the
+  flashing interception boundary and re-exports the service workers for
+  compatibility; `worker_runtime.py` centralizes queued startup and cleanup.
 - `qt_logger.py` and `rich_output.py` preserve ruyi's Rich output, links,
   progress updates, and operation-specific routing in Qt views.
 - `i18n.py` coordinates application, Qt, imported ruyi, and subprocess locale
   selection.
-- `first_use.py` owns the non-modal setup step/status dialog; the pure detection
-  predicate is in `core/first_use_policy.py`; `main_window.py` owns transitions
+- `ui/first_use_dialog.py` owns the non-modal setup step/status dialog;
+  `first_use.py` keeps compatibility exports for the dialog and pure detection
+  predicate from `core/first_use_policy.py`; `main_window.py` owns transitions
   and reuses existing version and repository operations.
 - `processes/*.py` owns child-process command adapters. Flat child modules remain
   compatibility wrappers for existing `python -m` and QProcess callers.
@@ -123,8 +127,9 @@ The main boundaries are:
 Do not run repository I/O, release downloads, disk discovery, package work, or
 flashing directly on the Qt UI thread.
 
-Most blocking Python operations use workers from `workers.py`. A worker emits a
-result or failure signal and is moved to a fresh QThread by
+Most blocking Python operations use workers from `worker_services.py`; the
+flashing interception remains in `workers.py`. A worker emits a result or
+failure signal and is moved to a fresh QThread by
 `worker_runtime.start_worker()` through `run_worker_in_thread()`. The main
 window owns cleanup and UI state changes; `worker_runtime.stop_thread()` gives
 all worker owners the same quit-and-wait behavior.
@@ -393,7 +398,8 @@ oh_my_ruyi/
   ruyi_facade.py        Qt-free imported ruyi API boundary
   version_manager.py    release and activation services
   worker_runtime.py     shared QThread startup and cleanup
-  workers.py            QThread workers and flashing interception
+  worker_services.py    repository, storage, release, and telemetry workers
+  workers.py            flashing interception and compatibility exports
 tests/
   test_i18n.py          locale routing and translated UI coverage
   test_smoke.py         construction, logger, and rendering smoke tests

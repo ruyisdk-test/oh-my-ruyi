@@ -13,8 +13,8 @@ oh_my_ruyi.__main__
       -> GlobalConfig + QtRuyiLogger
       -> main_window.py
           -> first_use.py / repo_manager_tab.py / about_tab.py
-          -> ui/version_dialogs.py and ui/common.py
-          -> workers.py -> worker_runtime.py
+          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog}.py
+          -> worker_services.py / workers.py -> worker_runtime.py
           -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
           -> QProcess child modules in processes/
 ```
@@ -34,8 +34,9 @@ and the boundary checks required before invoking those APIs.
 | `core/first_use_policy.py` | Pure first-launch eligibility predicate and PATH filtering | Dialogs, downloads, activation |
 | `core/repo_presets.py` | Immutable repository/source preset data | TOML writes or repository I/O |
 | `ui/common.py` | Small Qt constants, translated message-box adapter, semantic version table item | Application state |
-| `ui/version_dialogs.py` | Reusable version-download dialog and its signals | Starting workers or changing filesystem state |
-| `workers.py` | QObject workers and flashing interception | Widget mutation or thread ownership outside its worker |
+| `ui/version_dialogs.py`, `ui/repo_dialogs.py`, `ui/first_use_dialog.py` | Reusable Qt dialogs with narrow signal/data contracts | Starting workers or changing filesystem state |
+| `worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
+| `workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
 | `worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
 | `host_storage.py` | Disk discovery, topology, mount checks, fingerprints | Qt state or flashing commands |
 | `ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs | Reimplementation of ruyi algorithms |
@@ -111,9 +112,12 @@ transitions. Its methods are grouped by responsibility:
 
 The extraction rule is conservative: a class or function may move when it has a
 small signal/data contract and no hidden access to the window's mutable state.
-The version download dialog meets that rule. Wizard pages do not yet: they
-share dozens of fields and transition methods, so moving them wholesale would
-increase coupling rather than improve readability.
+The version download, repository source/update, and first-use dialogs meet that
+rule. The service workers meet it because they only retain operation inputs and
+emit results; `workers.py` re-exports their original names for callers and
+tests. Wizard pages do not yet: they share dozens of fields and transition
+methods, so moving them wholesale would increase coupling rather than improve
+readability.
 
 ## Worker Lifecycle
 

@@ -37,14 +37,16 @@ Use this map to find the owning boundary:
   `oh_my_ruyi/main_window.py`.
 - Reusable Qt helpers and version download dialog: `oh_my_ruyi/ui/`.
 - First-use eligibility policy: `oh_my_ruyi/core/first_use_policy.py`; setup
-  step/status UI: `oh_my_ruyi/first_use.py`.
+  step/status UI: `oh_my_ruyi/ui/first_use_dialog.py`; `first_use.py` keeps
+  the policy and dialog compatibility exports.
 - Mutable provisioning selections and invalidation: `oh_my_ruyi/core/state.py`;
   `oh_my_ruyi/state.py` is a compatibility import.
 - Immutable repository/source preset data: `oh_my_ruyi/core/repo_presets.py`;
   `oh_my_ruyi/repo_presets.py` is a compatibility import.
 - Qt-free ruyi provisioning boundary: `oh_my_ruyi/ruyi_facade.py`.
-- QThread workers, flashing interception, cancellation, and privileged helpers:
-  `oh_my_ruyi/workers.py`.
+- Service QThread workers for repository, storage, release, and telemetry:
+  `oh_my_ruyi/worker_services.py`; flashing interception and compatibility
+  worker exports: `oh_my_ruyi/workers.py`.
 - Shared worker thread startup and cleanup: `oh_my_ruyi/worker_runtime.py`.
 - Repository model and mutations: `oh_my_ruyi/repo_manager.py`.
 - Repository UI and update/news processes: `oh_my_ruyi/repo_manager_tab.py`,

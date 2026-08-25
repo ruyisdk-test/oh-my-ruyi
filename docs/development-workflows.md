@@ -34,9 +34,11 @@ know the main window's state machine. A reusable widget should:
 - preserve retry, cancellation, and failure output if it starts a visual flow;
 - have construction and signal tests in `tests/test_smoke.py` or a focused UI test.
 
-`ui/version_dialogs.py` is the reference. The main window supplies the release,
-connects `download_requested` and `cancel_requested`, and decides what success
-or failure means. The dialog never calls `version_manager.download_release()`.
+`ui/version_dialogs.py` is the reference; `ui/repo_dialogs.py` and
+`ui/first_use_dialog.py` follow the same rule. The main window supplies data,
+connects intent signals, and decides what success or failure means. Dialogs
+never call blocking service functions such as
+`version_manager.download_release()`.
 
 Do not move a wizard page merely because it is long. If a page reads or writes
 many `ProvisionMainWindow` fields, first extract a pure formatter or a helper
@@ -45,9 +47,11 @@ make navigation harder to follow.
 
 ## Adding a Worker
 
-Add the worker class to `workers.py` while its signal contract is still part of
-the main window's API. Use `worker_runtime.start_worker()` through the existing
-`run_worker_in_thread()` wrapper. A worker must:
+Add a service worker to `worker_services.py` when it only retains operation
+inputs and emits a result; keep the flashing interception in `workers.py`.
+`workers.py` re-exports service workers so existing imports remain valid. Use
+`worker_runtime.start_worker()` through the existing `run_worker_in_thread()`
+wrapper. A worker must:
 
 1. keep all blocking ruyi, filesystem, network, and subprocess work in `run()`;
 2. catch operational exceptions and emit `failed` with a user-facing message;
