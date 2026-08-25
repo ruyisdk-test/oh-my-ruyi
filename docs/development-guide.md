@@ -104,6 +104,8 @@ The main boundaries are:
 - `ui/theme.py` owns palette-derived semantic colors and stylesheet text;
   `main_window.py` only applies the stylesheet and keeps the palette wrapper
   for compatibility.
+- `ui/repo_tables.py` owns repository table rendering; `RepoManagementTab`
+  still owns selection, mutations, and update processes.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.

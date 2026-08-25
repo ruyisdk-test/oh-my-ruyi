@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -27,6 +26,7 @@ from .i18n import apply_qprocess_locale, _, translate_widget_tree
 from .rich_output import RICH_TERMINAL_ENV, strip_terminal_controls
 from .ui.repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .ui.common import configure_table
+from .ui.repo_tables import populate_repository_tables
 
 _REPO_ROLE = Qt.ItemDataRole.UserRole
 
@@ -280,49 +280,13 @@ class RepoManagementTab(QWidget):
         self._refresh_buttons()
 
     def _populate_tables(self) -> None:
-        configured_ids = {repo.id for repo in self._repos}
-        self.preset_table.setRowCount(0)
-        for preset in repo_manager.PRESET_REPOS:
-            row = self.preset_table.rowCount()
-            self.preset_table.insertRow(row)
-            values = (preset.id, preset.name)
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                if column == 0:
-                    item.setData(_REPO_ROLE, preset)
-                tooltip = value
-                if preset.id in configured_ids:
-                    tooltip += "\n" + _("Already present in the local configuration.")
-                item.setToolTip(tooltip)
-                self.preset_table.setItem(row, column, item)
-
-        self.configured_table.setRowCount(0)
-        for repo in self._repos:
-            row = self.configured_table.rowCount()
-            self.configured_table.insertRow(row)
-            source = repo_manager.source_label(repo)
-            values = (
-                repo.id,
-                repo.name,
-                source,
-                repo.branch or "",
-                str(repo.priority),
-                _("Active" if repo.active else "Disabled"),
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(value)
-                item.setToolTip(value)
-                if column == 0:
-                    item.setData(_REPO_ROLE, repo)
-                self.configured_table.setItem(row, column, item)
-            if repo.is_default:
-                for column in range(self.configured_table.columnCount()):
-                    self.configured_table.item(row, column).setToolTip(
-                        _(
-                            "{value}\nThe default ruyisdk repository cannot be removed.",
-                            value=values[column],
-                        )
-                    )
+        populate_repository_tables(
+            self.preset_table,
+            self.configured_table,
+            repo_manager.PRESET_REPOS,
+            self._repos,
+            data_role=_REPO_ROLE,
+        )
 
     def _selected_preset(self) -> repo_manager.RepoPreset | None:
         row = self.preset_table.currentRow()
