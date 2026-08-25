@@ -101,6 +101,9 @@ The main boundaries are:
   they expose only signals and display/state methods, never workers or I/O.
 - `ui/version_tables.py` owns release and installed-version table rendering;
   the main window supplies data and theme brushes and keeps orchestration.
+- `ui/theme.py` owns palette-derived semantic colors and stylesheet text;
+  `main_window.py` only applies the stylesheet and keeps the palette wrapper
+  for compatibility.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.

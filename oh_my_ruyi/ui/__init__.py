@@ -21,6 +21,7 @@ from .version_tables import (
     populate_installed_versions_table,
     set_row_foreground,
 )
+from .theme import stylesheet_for_colors, theme_colors
 
 __all__ = [
     "FASTBOOT_PROGRAM",
@@ -36,5 +37,7 @@ __all__ = [
     "populate_available_versions_table",
     "populate_installed_versions_table",
     "set_row_foreground",
+    "stylesheet_for_colors",
+    "theme_colors",
     "message_box",
 ]
