@@ -64,6 +64,9 @@ Use this map to find the owning boundary:
   `oh_my_ruyi/host_storage.py`.
 - Rich and ruyi output routing: `oh_my_ruyi/qt_logger.py` and
   `oh_my_ruyi/rich_output.py`.
+- Shared QProcess locale/output environment configuration:
+  `oh_my_ruyi/processes/environment.py`; process ownership and cancellation
+  remain in the owning tab or window.
 - Locale routing and translation helpers: `oh_my_ruyi/i18n.py` and
   `oh_my_ruyi/locales/zh_CN.json`.
 - Tests: `tests/test_<owning_module>.py`; cross-window flows are mainly in

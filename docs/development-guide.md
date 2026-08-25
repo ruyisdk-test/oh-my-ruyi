@@ -109,6 +109,9 @@ The main boundaries are:
 - `ui/provision_pages.py` owns provisioning page construction and callback
   wiring; `ProvisionMainWindow` keeps the returned widget references and owns
   all state transitions.
+- `processes/environment.py` centralizes the common QProcess locale, Rich
+  terminal, buffering, and telemetry flags. The caller remains responsible for
+  creating and configuring its own QProcess.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.

@@ -26,12 +26,12 @@ from ruyi.telemetry.provider import next_utc_weekday
 
 from . import __version__, version_manager
 from .i18n import (
-    apply_qprocess_locale,
     locale_environment,
     _,
     translate_widget_tree,
 )
 from .rich_output import RICH_TERMINAL_ENV, RichTextView
+from .processes.environment import configure_ruyi_qprocess_environment
 
 
 def application_version() -> str:
@@ -218,11 +218,7 @@ class AboutTab(QWidget):
         process.setProgram(os.fspath(path_state.command))
         process.setArguments(["version"])
         env = QProcessEnvironment.systemEnvironment()
-        apply_qprocess_locale(env)
-        env.remove("NO_COLOR")
-        env.insert("RUYI_TELEMETRY_OPTOUT", "1")
-        for key, value in RICH_TERMINAL_ENV.items():
-            env.insert(key, value)
+        configure_ruyi_qprocess_environment(env, telemetry_optout=True)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.finished.connect(

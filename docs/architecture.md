@@ -16,7 +16,7 @@ oh_my_ruyi.__main__
           -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables,provision_pages}.py
           -> worker_services.py / workers.py -> worker_runtime.py
           -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
-          -> QProcess child modules in processes/
+          -> QProcess child modules and environment adapter in processes/
 ```
 
 The application is deliberately not a clean-room implementation of ruyi. The
@@ -49,6 +49,7 @@ and the boundary checks required before invoking those APIs.
 | `version_manager.py` | Release catalog, downloads, activation, PATH and telemetry services | Qt dialogs or widget state |
 | `qt_logger.py`, `rich_output.py` | Rich/ANSI output routing and rendering | Flattening output before the view |
 | `processes/*.py` | Blocking child-process command adapters | Qt objects or GUI state |
+| `processes/environment.py` | Shared locale, Rich terminal, buffering, and telemetry environment mutations | Process lifecycle or business operations |
 
 ## Compatibility Modules
 
@@ -143,6 +144,12 @@ commands when independent process-group cancellation is required. The child
 sets its own ruyi environment, performs the blocking call, and returns a normal
 exit code. The parent classifies output by operation identity before displaying
 it.
+
+The parent-side QProcess environment is configured by
+`processes/environment.py`. The owning module still creates the
+`QProcessEnvironment` and owns the process object; the helper only applies the
+shared locale/output flags and keeps those module-level construction seams
+available to tests.
 
 ## Output Routing
 

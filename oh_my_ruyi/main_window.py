@@ -55,15 +55,10 @@ from PySide6.QtWidgets import (
 from . import first_use, host_storage, repo_manager, ruyi_facade, version_manager
 from .about_tab import AboutTab
 from .first_use import FirstUseDialog
-from .i18n import apply_qprocess_locale, _, translate_widget_tree
+from .i18n import _, translate_widget_tree
 from .qt_logger import LogEmitter, QtRuyiLogger
 from .repo_manager_tab import RepoManagementTab
-from .rich_output import (
-    RICH_TERMINAL_ENV,
-    RichTextView,
-    rich_to_html,
-    strip_terminal_controls,
-)
+from .rich_output import RichTextView, rich_to_html, strip_terminal_controls
 from .core.state import WizardState
 from .core.formatting import format_bytes
 from .workers import (
@@ -80,6 +75,7 @@ from .workers import (
     run_worker_in_thread,
 )
 from .worker_runtime import stop_thread
+from .processes.environment import configure_ruyi_qprocess_environment
 
 from .ui.common import (
     FASTBOOT_PROGRAM,
@@ -1464,11 +1460,7 @@ class ProvisionMainWindow(QMainWindow):
             ["-m", "oh_my_ruyi.download_child", *self.state.pkg_atoms]
         )
         env = QProcessEnvironment.systemEnvironment()
-        apply_qprocess_locale(env)
-        env.remove("NO_COLOR")
-        env.insert("PYTHONUNBUFFERED", "1")
-        for key, value in RICH_TERMINAL_ENV.items():
-            env.insert(key, value)
+        configure_ruyi_qprocess_environment(env, unbuffered=True)
         self._download_process.setProcessEnvironment(env)
         self._download_process.setProcessChannelMode(
             QProcess.ProcessChannelMode.MergedChannels

@@ -22,8 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from . import repo_manager
-from .i18n import apply_qprocess_locale, _, translate_widget_tree
-from .rich_output import RICH_TERMINAL_ENV, strip_terminal_controls
+from .i18n import _, translate_widget_tree
+from .rich_output import strip_terminal_controls
+from .processes.environment import configure_ruyi_qprocess_environment
 from .ui.repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .ui.common import configure_table
 from .ui.repo_tables import populate_repository_tables
@@ -552,12 +553,7 @@ class RepoManagementTab(QWidget):
             ]
         )
         env = QProcessEnvironment.systemEnvironment()
-        apply_qprocess_locale(env)
-        env.remove("NO_COLOR")
-        env.insert("PYTHONUNBUFFERED", "1")
-        env.insert("RUYI_TELEMETRY_OPTOUT", "1")
-        for key, value in RICH_TERMINAL_ENV.items():
-            env.insert(key, value)
+        configure_ruyi_qprocess_environment(env, unbuffered=True, telemetry_optout=True)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(self._read_process_output)
@@ -709,12 +705,7 @@ class RepoManagementTab(QWidget):
             ]
         )
         env = QProcessEnvironment.systemEnvironment()
-        apply_qprocess_locale(env)
-        env.remove("NO_COLOR")
-        env.insert("PYTHONUNBUFFERED", "1")
-        env.insert("RUYI_TELEMETRY_OPTOUT", "1")
-        for key, value in RICH_TERMINAL_ENV.items():
-            env.insert(key, value)
+        configure_ruyi_qprocess_environment(env, unbuffered=True, telemetry_optout=True)
         process.setProcessEnvironment(env)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         process.readyReadStandardOutput.connect(
