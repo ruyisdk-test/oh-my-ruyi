@@ -18,6 +18,9 @@ reference, and the [README](README.md) defines user-facing behavior.
 - Headless Qt tests require `QT_QPA_PLATFORM=offscreen`.
 - User-visible behavior belongs in `README.md`; contributor explanations belong
   in `docs/development-guide.md`; durable agent constraints belong here.
+- Detailed refactor, safety, workflow, and verification guidance is in
+  `docs/architecture.md`, `docs/operations-and-safety.md`,
+  `docs/development-workflows.md`, and `docs/testing-and-packaging.md`.
 
 ## Start Here
 
@@ -32,16 +35,24 @@ Use this map to find the owning boundary:
 - Application bootstrap and locale initialization: `oh_my_ruyi/app.py`.
 - Top-level tabs, version UI, and provisioning state machine:
   `oh_my_ruyi/main_window.py`.
-- First-use detection and setup step/status UI: `oh_my_ruyi/first_use.py`; the
-  main-window handlers orchestrate it using existing version and repository
-  operations.
-- Mutable provisioning selections and invalidation: `oh_my_ruyi/state.py`.
+- Reusable Qt helpers and version download dialog: `oh_my_ruyi/ui/`.
+- First-use eligibility policy: `oh_my_ruyi/core/first_use_policy.py`; setup
+  step/status UI: `oh_my_ruyi/first_use.py`.
+- Mutable provisioning selections and invalidation: `oh_my_ruyi/core/state.py`;
+  `oh_my_ruyi/state.py` is a compatibility import.
+- Immutable repository/source preset data: `oh_my_ruyi/core/repo_presets.py`;
+  `oh_my_ruyi/repo_presets.py` is a compatibility import.
 - Qt-free ruyi provisioning boundary: `oh_my_ruyi/ruyi_facade.py`.
 - QThread workers, flashing interception, cancellation, and privileged helpers:
   `oh_my_ruyi/workers.py`.
+- Shared worker thread startup and cleanup: `oh_my_ruyi/worker_runtime.py`.
 - Repository model and mutations: `oh_my_ruyi/repo_manager.py`.
 - Repository UI and update/news processes: `oh_my_ruyi/repo_manager_tab.py`,
-  `oh_my_ruyi/repo_update_child.py`, and `oh_my_ruyi/repo_news_child.py`.
+  `oh_my_ruyi/processes/repo_update_child.py`, and
+  `oh_my_ruyi/processes/repo_news_child.py`.
+- Package download child process: `oh_my_ruyi/processes/download_child.py`.
+  The flat child modules remain compatibility entry points for existing
+  `python -m` commands.
 - Release discovery, downloads, activation, PATH state, and telemetry:
   `oh_my_ruyi/version_manager.py`.
 - Disk discovery, mount topology, and target fingerprints:
@@ -60,11 +71,11 @@ Use this map to find the owning boundary:
   setup, or flashing on the Qt UI thread. Follow the existing QObject/QThread
   or child-process pattern for the owning feature.
 - Workers emit results or failures. UI state and widget mutation stay on the Qt
-  thread. Preserve thread ownership, signal cleanup, cancellation, and process
-  termination when changing asynchronous paths.
-- `main_window.py` owns provisioning transitions. Moving back to an earlier
-  step invalidates dependent `WizardState`; stale prepared or storage state
-  must not survive changed inputs.
+  thread. Use `worker_runtime.py` through `run_worker_in_thread()` and preserve
+  thread ownership, signal cleanup, cancellation, and process termination.
+- `main_window.py` owns provisioning transitions. Use `WizardState` methods in
+  `core/state.py` for atomic invalidation; stale prepared or storage state must
+  not survive changed inputs.
 - `ruyi_facade.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
   without becoming a second implementation of ruyi.
 - Repository TOML may be parsed for ordered display and validation, but all

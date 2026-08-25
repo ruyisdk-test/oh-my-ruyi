@@ -4,6 +4,17 @@ This guide covers local development, architecture, testing, packaging, and
 extension points for Oh My Ruyi. User-facing setup and operation remain in the
 [project README](../README.md).
 
+Detailed topic references:
+
+- [Architecture](architecture.md) for ownership, compatibility imports, state,
+  worker lifecycle, and output routing.
+- [Development Workflows](development-workflows.md) for adding policies,
+  widgets, workers, child processes, adapters, presets, and locales.
+- [Operations And Safety](operations-and-safety.md) for storage, flashing,
+  activation, first-use, repository, and localization invariants.
+- [Testing And Packaging](testing-and-packaging.md) for test ownership, mocks,
+  CI commands, wheels, and frozen builds.
+
 ## Documentation for Humans and AI Agents
 
 This guide is the human-oriented development reference: it explains why the
@@ -74,10 +85,20 @@ The main boundaries are:
   `QApplication` and the main window.
 - `main_window.py` owns the top-level tabs, version management, and the device
   provisioning state machine.
+- `core/state.py` owns the Qt-free mutable wizard scratchpad and invalidation
+  methods. The flat `state.py` file is a compatibility import.
+- `core/first_use_policy.py` owns the pure first-launch eligibility predicate;
+  `first_use.py` owns the setup dialog and re-exports the predicate.
+- `core/repo_presets.py` owns immutable preset data; `repo_presets.py` remains a
+  compatibility import.
+- `ui/common.py` owns shared Qt constants, translated message boxes, and
+  semantic version table sorting. `ui/version_dialogs.py` owns the reusable
+  version download dialog.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.
-- `state.py` contains the mutable state accumulated across provisioning steps.
+- `core/state.py` contains the mutable state accumulated across provisioning
+  steps; `state.py` is a compatibility import.
 - `ruyi_facade.py` is the Qt-free boundary over imported ruyi provisioning APIs.
 - `version_manager.py` handles release discovery, standalone binary downloads,
   activation, deactivation, deletion, PATH inspection, and telemetry setup.
@@ -85,14 +106,17 @@ The main boundaries are:
   mutations through ruyi's configuration editor.
 - `host_storage.py` owns platform-specific disk discovery, mount checks, and
   device fingerprints.
-- `workers.py` wraps blocking operations in QObjects that run on QThreads.
+- `workers.py` wraps blocking operations in QObjects that run on QThreads;
+  `worker_runtime.py` centralizes queued startup and cleanup.
 - `qt_logger.py` and `rich_output.py` preserve ruyi's Rich output, links,
   progress updates, and operation-specific routing in Qt views.
 - `i18n.py` coordinates application, Qt, imported ruyi, and subprocess locale
   selection.
-- `first_use.py` owns first-launch detection and the non-modal setup step/status
-  dialog; `main_window.py` owns its state transitions and reuses existing version
-  and repository operations.
+- `first_use.py` owns the non-modal setup step/status dialog; the pure detection
+  predicate is in `core/first_use_policy.py`; `main_window.py` owns transitions
+  and reuses existing version and repository operations.
+- `processes/*.py` owns child-process command adapters. Flat child modules remain
+  compatibility wrappers for existing `python -m` and QProcess callers.
 
 ## Threading and Process Model
 
@@ -101,14 +125,16 @@ flashing directly on the Qt UI thread.
 
 Most blocking Python operations use workers from `workers.py`. A worker emits a
 result or failure signal and is moved to a fresh QThread by
-`run_worker_in_thread()`. The main window owns cleanup and UI state changes.
+`worker_runtime.start_worker()` through `run_worker_in_thread()`. The main
+window owns cleanup and UI state changes; `worker_runtime.stop_thread()` gives
+all worker owners the same quit-and-wait behavior.
 
 Operations that need independent cancellation or native terminal behavior use
 child processes:
 
-- `download_child.py` runs package download and installation.
-- `repo_update_child.py` runs one repository update.
-- `repo_news_child.py` reads or marks repository news.
+- `processes/download_child.py` runs package download and installation.
+- `processes/repo_update_child.py` runs one repository update.
+- `processes/repo_news_child.py` reads or marks repository news.
 - `version_manager.py` runs privileged activation helpers and ruyi's telemetry
   OOBE in a pseudo-terminal.
 
@@ -128,7 +154,8 @@ The first-use setup is offered only when all of these conditions hold:
 The first and third paths come from ruyi's XDG helper, so Linux defaults live
 under `~/.local/` while macOS defaults live under `~/Library/Application Support/`.
 
-`first_use.should_offer_first_use_setup()` owns this predicate. Do not replace it
+`core.first_use_policy.should_offer_first_use_setup()` owns this predicate. It is
+re-exported by `first_use.py` for compatibility. Do not replace it
 with a separate completion marker: the file-system and PATH state are the
 contract. The PATH check removes the directory containing `sys.executable` before
 searching so the ruyi console script installed as Oh My Ruyi's Python dependency
@@ -165,7 +192,7 @@ page:
 1. Initialize or sync the configured ruyi metadata repository.
 2. Select a device, variant, and image combo from ruyi metadata.
 3. Offer package version customization when ruyi reports useful alternatives.
-4. Download and install package artifacts in `download_child.py`.
+4. Download and install package artifacts in `processes/download_child.py`.
 5. Build a `PreparedProvision` from ruyi's strategy provider.
 6. Collect and validate any required host block-device paths.
 7. Display the strategy's pretend output and required commands.
@@ -181,9 +208,10 @@ TOML is parsed directly only for ordered display and validation. Mutations must
 go through ruyi's `ConfigEditor`; do not add a second TOML writer.
 
 The built-in `ruyisdk` entry remains first and cannot be removed. Additional
-repositories come from `repo_presets.py`, start disabled, and retain their
-preset IDs and names. Update and news output is rendered through the same Rich
-terminal view used elsewhere in the application.
+repositories come from `core/repo_presets.py` (with `repo_presets.py` retained
+as a compatibility import), start disabled, and retain their preset IDs and
+names. Update and news output is rendered through the same Rich terminal view
+used elsewhere in the application.
 
 ## Package Manager Versions
 
@@ -349,7 +377,9 @@ oh_my_ruyi/
   __main__.py           module entry point
   about_tab.py          runtime and telemetry information
   app.py                locale, config, QApplication, and window bootstrap
-  download_child.py     cancellable package install subprocess
+  core/                 Qt-free state and first-use policy
+  processes/            cancellable package/repository/news subprocesses
+  ui/                   reusable Qt helpers and version dialogs
   host_storage.py       disk discovery, mount checks, and fingerprints
   i18n.py               locale resolution and gettext-style helper
   locales/              application translation catalogs
@@ -357,13 +387,12 @@ oh_my_ruyi/
   qt_logger.py          ruyi logger bridge to Qt signals
   repo_manager.py       repository model and configuration mutations
   repo_manager_tab.py   repository management UI
-  repo_news_child.py    repository news subprocess
-  repo_presets.py       ordered repository and source presets
-  repo_update_child.py  repository update subprocess
+  core/repo_presets.py  ordered repository and source presets
+  repo_presets.py       compatibility import for preset data
   rich_output.py        safe Rich/ANSI rendering in Qt
   ruyi_facade.py        Qt-free imported ruyi API boundary
-  state.py              mutable provisioning state
   version_manager.py    release and activation services
+  worker_runtime.py     shared QThread startup and cleanup
   workers.py            QThread workers and flashing interception
 tests/
   test_i18n.py          locale routing and translated UI coverage
