@@ -43,7 +43,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QSplitter,
     QStackedWidget,
     QStyle,
     QTabWidget,
@@ -81,10 +80,10 @@ from .ui.common import (
     FASTBOOT_PROGRAM,
     STORAGE_FINGERPRINT_ROLE,
     STORAGE_MOUNTED_ROLE,
-    configure_table,
     message_box as _message_box,
 )
 from .ui.version_dialogs import VersionDownloadDialog as _VersionDownloadDialog
+from .ui.version_manager_panels import build_version_manager_tab
 from .ui.version_tables import (
     populate_available_versions_table,
     populate_installed_versions_table,
@@ -774,133 +773,34 @@ class ProvisionMainWindow(QMainWindow):
         self._start_repo_init()
 
     def _build_version_manager_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        title = QLabel("<b>Ruyi Package Manager Versions</b>")
-        title.setObjectName("pageTitle")
-        layout.addWidget(title)
-        description = QLabel(
-            "Download standalone ruyi releases into your home directory and choose "
-            "which version /usr/local/bin/ruyi activates."
+        widgets = build_version_manager_tab(
+            style=self.style(),
+            refresh_pm_buttons=self._refresh_pm_buttons,
+            refresh_pm_catalog=self._refresh_pm_catalog,
+            download_selected=self._download_selected_pm_version,
+            remove_selected_url=self._remove_selected_pm_download_url,
+            add_url=self._add_pm_download_url,
+            refresh_local_versions=self._refresh_pm_local_versions,
+            delete_selected=self._delete_selected_pm_version,
+            toggle_activation=self._toggle_selected_pm_version_activation,
+            browse_selected=self._browse_selected_pm_version,
+            align_status_heights=self._align_pm_status_heights,
         )
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
-        self._pm_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._pm_splitter.setChildrenCollapsible(False)
-        self._pm_splitter.addWidget(self._build_available_versions_panel())
-        self._pm_splitter.addWidget(self._build_installed_versions_panel())
-        self._pm_splitter.setStretchFactor(0, 1)
-        self._pm_splitter.setStretchFactor(1, 1)
-        self._pm_splitter.splitterMoved.connect(self._align_pm_status_heights)
-        layout.addWidget(self._pm_splitter, 1)
-
+        self._pm_splitter = widgets.splitter
+        self._pm_available_table = widgets.available_table
+        self._pm_refresh_btn = widgets.refresh_btn
+        self._pm_download_btn = widgets.download_btn
+        self._pm_remove_url_btn = widgets.remove_url_btn
+        self._pm_add_url_btn = widgets.add_url_btn
+        self._pm_status = widgets.status
+        self._pm_installed_table = widgets.installed_table
+        self._pm_local_refresh_btn = widgets.local_refresh_btn
+        self._pm_delete_btn = widgets.delete_btn
+        self._pm_toggle_activation_btn = widgets.toggle_activation_btn
+        self._pm_browse_btn = widgets.browse_btn
+        self._pm_path_status = widgets.path_status
         self._refresh_pm_versions()
-        return tab
-
-    def _build_available_versions_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 6, 0)
-        layout.addWidget(QLabel("<b>Available downloads</b>"))
-
-        content = QHBoxLayout()
-        self._pm_available_table = QTableWidget(0, 4)
-        configure_table(
-            self._pm_available_table,
-            ["Version", "Channel", "Architecture", "Released"],
-            stretch_column=0,
-            sorting=True,
-        )
-        self._pm_available_table.setObjectName("availableVersionTable")
-        self._pm_available_table.setAccessibleName("Available ruyi versions")
-        self._pm_available_table.itemSelectionChanged.connect(self._refresh_pm_buttons)
-        content.addWidget(self._pm_available_table, 1)
-
-        buttons = QVBoxLayout()
-        buttons.addStretch()
-        self._pm_refresh_btn = QPushButton("Refresh")
-        self._pm_download_btn = QPushButton("Download")
-        self._pm_remove_url_btn = QPushButton("Remove")
-        self._pm_add_url_btn = QPushButton("Add URL")
-        self._pm_refresh_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
-        self._pm_refresh_btn.clicked.connect(self._refresh_pm_catalog)
-        self._pm_download_btn.clicked.connect(self._download_selected_pm_version)
-        self._pm_remove_url_btn.clicked.connect(self._remove_selected_pm_download_url)
-        buttons.addWidget(self._pm_refresh_btn)
-        buttons.addWidget(self._pm_download_btn)
-        buttons.addWidget(self._pm_remove_url_btn)
-        buttons.addWidget(self._pm_add_url_btn)
-        buttons.addStretch()
-        self._pm_add_url_btn.clicked.connect(self._add_pm_download_url)
-        content.addLayout(buttons)
-        layout.addLayout(content, 1)
-
-        self._pm_status = self._make_pm_status_label(
-            "Showing versions already downloaded on this computer."
-        )
-        layout.addWidget(self._pm_status)
-        return panel
-
-    def _build_installed_versions_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(6, 0, 0, 0)
-        layout.addWidget(QLabel("<b>Downloaded versions</b>"))
-
-        content = QHBoxLayout()
-        self._pm_installed_table = QTableWidget(0, 5)
-        configure_table(
-            self._pm_installed_table,
-            ["Version", "Channel", "State", "Size", "Note"],
-            stretch_column=0,
-            sorting=True,
-        )
-        self._pm_installed_table.setObjectName("installedVersionTable")
-        self._pm_installed_table.setAccessibleName("Downloaded ruyi versions")
-        self._pm_installed_table.itemSelectionChanged.connect(self._refresh_pm_buttons)
-        content.addWidget(self._pm_installed_table, 1)
-
-        buttons = QVBoxLayout()
-        buttons.addStretch()
-        self._pm_local_refresh_btn = QPushButton("Refresh")
-        self._pm_delete_btn = QPushButton("Delete")
-        self._pm_toggle_activation_btn = QPushButton("Activate")
-        self._pm_browse_btn = QPushButton("Browse")
-        self._pm_local_refresh_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
-        self._pm_local_refresh_btn.setToolTip(
-            "Rescan downloaded ruyi binaries from the file system"
-        )
-        self._pm_browse_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
-        )
-        self._pm_browse_btn.setToolTip(
-            "Open the folder containing the selected downloaded binary"
-        )
-        self._pm_local_refresh_btn.clicked.connect(self._refresh_pm_local_versions)
-        self._pm_delete_btn.clicked.connect(self._delete_selected_pm_version)
-        self._pm_toggle_activation_btn.clicked.connect(
-            self._toggle_selected_pm_version_activation
-        )
-        self._pm_browse_btn.clicked.connect(self._browse_selected_pm_version)
-        buttons.addWidget(self._pm_local_refresh_btn)
-        buttons.addWidget(self._pm_delete_btn)
-        buttons.addWidget(self._pm_toggle_activation_btn)
-        buttons.addWidget(self._pm_browse_btn)
-        buttons.addStretch()
-        content.addLayout(buttons)
-        layout.addLayout(content, 1)
-
-        self._pm_path_status = self._make_pm_status_label()
-        layout.addWidget(self._pm_path_status)
-        return panel
+        return widgets.tab
 
     @staticmethod
     def _make_pm_status_label(text: str = "") -> QLabel:

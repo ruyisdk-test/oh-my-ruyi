@@ -109,6 +109,9 @@ The main boundaries are:
 - `ui/provision_pages.py` owns provisioning page construction and callback
   wiring; `ProvisionMainWindow` keeps the returned widget references and owns
   all state transitions.
+- `ui/version_manager_panels.py` owns the standalone ruyi version page and its
+  panel controls; `ProvisionMainWindow` assigns the returned controls before
+  refreshing data and keeps all release/activation orchestration.
 - `processes/environment.py` centralizes the common QProcess locale, Rich
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.

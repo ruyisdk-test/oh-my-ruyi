@@ -18,6 +18,10 @@ from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .repo_tables import populate_repository_tables
 from .provision_pages import ProvisionPageWidgets, build_provision_pages
 from .version_dialogs import VersionDownloadDialog
+from .version_manager_panels import (
+    VersionManagerPanelWidgets,
+    build_version_manager_tab,
+)
 from .version_tables import (
     populate_available_versions_table,
     populate_installed_versions_table,
@@ -32,6 +36,8 @@ __all__ = [
     "STORAGE_FINGERPRINT_ROLE",
     "STORAGE_MOUNTED_ROLE",
     "VersionDownloadDialog",
+    "VersionManagerPanelWidgets",
+    "build_version_manager_tab",
     "VersionTableItem",
     "configure_table",
     "RepoSourceDialog",
