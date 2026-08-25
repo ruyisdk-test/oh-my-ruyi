@@ -13,7 +13,7 @@ oh_my_ruyi.__main__
       -> GlobalConfig + QtRuyiLogger
       -> main_window.py
           -> first_use.py / repo_manager_tab.py / about_tab.py
-          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables,provision_pages,version_manager_panels}.py
+          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables,provision_pages,version_manager_panels,repo_page,about_page}.py
           -> worker_services.py / workers.py -> worker_runtime.py
           -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
           -> QProcess child modules and environment adapter in processes/
@@ -41,6 +41,8 @@ and the boundary checks required before invoking those APIs.
 | `ui/repo_tables.py` | Repository preset/configuration table rendering and protected-entry hints | Repository mutations or update processes |
 | `ui/provision_pages.py` | Provisioning wizard page construction and callback wiring | Wizard state transitions, workers, repository or storage I/O |
 | `ui/version_manager_panels.py` | Standalone ruyi version page and panel construction | Release discovery, downloads, activation, or version state |
+| `ui/repo_page.py` | Repository management panel construction and intent wiring | Repository state, TOML mutation, or update processes |
+| `ui/about_page.py` | About page presentation construction | Runtime probes, telemetry queries, or subprocesses |
 | `worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
 | `workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
 | `worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |

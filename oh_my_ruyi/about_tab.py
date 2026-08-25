@@ -10,17 +10,8 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt
-from PySide6.QtWidgets import (
-    QFormLayout,
-    QFrame,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer
+from PySide6.QtWidgets import QWidget
 
 from ruyi.telemetry.provider import next_utc_weekday
 
@@ -32,6 +23,7 @@ from .i18n import (
 )
 from .rich_output import RICH_TERMINAL_ENV, RichTextView
 from .processes.environment import configure_ruyi_qprocess_environment
+from .ui.about_page import build_about_page, make_version_view, version_group
 
 
 def application_version() -> str:
@@ -113,73 +105,21 @@ class AboutTab(QWidget):
         process.deleteLater()
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(12)
-        title = QLabel("<b>About Oh My Ruyi</b>")
-        title.setObjectName("pageTitle")
-        self._title = title
-        root.addWidget(title)
-        self._version_label = QLabel()
-        root.addWidget(self._version_label)
-        intro = QLabel(
-            "Oh My Ruyi is a graphical frontend for managing ruyi package manager "
-            "versions, repositories, and device provisioning."
-        )
-        intro.setWordWrap(True)
-        root.addWidget(intro)
-
-        versions_box = QGroupBox("Ruyi versions")
-        versions_layout = QHBoxLayout(versions_box)
-        versions_layout.setSpacing(12)
-        self.bundled_version = self._make_version_view()
-        self.path_version = self._make_version_view()
-        versions_layout.addWidget(
-            self._version_group("Bundled ruyi", self.bundled_version)
-        )
-        versions_layout.addWidget(
-            self._version_group("PATH default ruyi", self.path_version)
-        )
-        root.addWidget(versions_box)
-
-        telemetry_box = QGroupBox("Telemetry")
-        telemetry_form = QFormLayout(telemetry_box)
-        telemetry_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
-        telemetry_form.setFormAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        telemetry_form.setLabelAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-        )
-        self.telemetry_mode = QLabel()
-        self.telemetry_schedule = QLabel()
-        for label in (self.telemetry_mode, self.telemetry_schedule):
-            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            label.setWordWrap(False)
-        telemetry_form.addRow("Current status", self.telemetry_mode)
-        telemetry_form.addRow("Next upload", self.telemetry_schedule)
-        root.addWidget(telemetry_box)
-        root.addStretch()
+        widgets = build_about_page(self)
+        self._title = widgets.title
+        self._version_label = widgets.version_label
+        self.bundled_version = widgets.bundled_version
+        self.path_version = widgets.path_version
+        self.telemetry_mode = widgets.telemetry_mode
+        self.telemetry_schedule = widgets.telemetry_schedule
 
     @staticmethod
     def _make_version_view() -> RichTextView:
-        view = RichTextView()
-        view.setFrameShape(QFrame.Shape.NoFrame)
-        view.setMinimumHeight(150)
-        return view
+        return make_version_view()
 
     @staticmethod
     def _version_group(title: str, view: RichTextView) -> QWidget:
-        box = QWidget()
-        layout = QVBoxLayout(box)
-        layout.setContentsMargins(0, 0, 0, 0)
-        label = QLabel(f"<b>{title}</b>")
-        layout.addWidget(label)
-        layout.addWidget(view)
-        return box
+        return version_group(title, view)
 
     def _load_info(self) -> None:
         self._version_label.setText(

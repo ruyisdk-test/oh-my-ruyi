@@ -112,6 +112,11 @@ The main boundaries are:
 - `ui/version_manager_panels.py` owns the standalone ruyi version page and its
   panel controls; `ProvisionMainWindow` assigns the returned controls before
   refreshing data and keeps all release/activation orchestration.
+- `ui/repo_page.py` owns repository panel construction and callback wiring;
+  `RepoManagementTab` retains its old private builders as thin compatibility
+  wrappers and owns repository mutations and QProcess lifecycle.
+- `ui/about_page.py` owns the About page's read-only widget tree;
+  `AboutTab` retains runtime version probes and telemetry calculation.
 - `processes/environment.py` centralizes the common QProcess locale, Rich
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.

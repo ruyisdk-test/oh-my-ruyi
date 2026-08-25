@@ -11,12 +11,9 @@ from typing import Callable
 from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QLabel,
     QMessageBox,
-    QPushButton,
     QSplitter,
-    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -26,7 +23,7 @@ from .i18n import _, translate_widget_tree
 from .rich_output import strip_terminal_controls
 from .processes.environment import configure_ruyi_qprocess_environment
 from .ui.repo_dialogs import RepoSourceDialog, RepoUpdateDialog
-from .ui.common import configure_table
+from .ui.repo_page import build_configured_panel, build_preset_panel
 from .ui.repo_tables import populate_repository_tables
 
 _REPO_ROLE = Qt.ItemDataRole.UserRole
@@ -104,69 +101,30 @@ class RepoManagementTab(QWidget):
         root.addWidget(self.status)
 
     def _build_presets_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 6, 0)
-        layout.addWidget(QLabel("<b>Preset repositories</b>"))
-        content = QHBoxLayout()
-        self.preset_table = QTableWidget(0, 2)
-        configure_table(
-            self.preset_table,
-            ["ID", "Name"],
-            stretch_column=1,
+        widgets = build_preset_panel(
+            refresh_buttons=self._refresh_buttons,
+            add_selected=self._add_selected_preset,
         )
-        self.preset_table.setAccessibleName("Preset repositories")
-        self.preset_table.itemSelectionChanged.connect(self._refresh_buttons)
-        content.addWidget(self.preset_table, 1)
-        buttons = QVBoxLayout()
-        buttons.addStretch()
-        self.add_button = QPushButton("Add")
-        self.add_button.clicked.connect(self._add_selected_preset)
-        buttons.addWidget(self.add_button)
-        buttons.addStretch()
-        content.addLayout(buttons)
-        layout.addLayout(content, 1)
-        return panel
+        self.preset_table = widgets.table
+        self.add_button = widgets.add_button
+        return widgets.panel
 
     def _build_configured_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(6, 0, 0, 0)
-        layout.addWidget(QLabel("<b>Configured repositories</b>"))
-        content = QHBoxLayout()
-        self.configured_table = QTableWidget(0, 6)
-        configure_table(
-            self.configured_table,
-            ["ID", "Name", "Source", "Branch", "Priority", "State"],
-            stretch_column=2,
+        widgets = build_configured_panel(
+            refresh_buttons=self._refresh_buttons,
+            reload=self.reload,
+            edit_selected=self._edit_selected,
+            remove_selected=self._remove_selected,
+            toggle_selected=self._toggle_selected,
+            update_selected=self._update_selected,
         )
-        self.configured_table.setAccessibleName("Configured repositories")
-        self.configured_table.itemSelectionChanged.connect(self._refresh_buttons)
-        content.addWidget(self.configured_table, 1)
-        buttons = QVBoxLayout()
-        buttons.addStretch()
-        self.refresh_button = QPushButton("Refresh")
-        self.edit_button = QPushButton("Edit")
-        self.remove_button = QPushButton("Remove")
-        self.toggle_button = QPushButton("Enable")
-        self.update_button = QPushButton("Update")
-        self.refresh_button.clicked.connect(self.reload)
-        self.edit_button.clicked.connect(self._edit_selected)
-        self.remove_button.clicked.connect(self._remove_selected)
-        self.toggle_button.clicked.connect(self._toggle_selected)
-        self.update_button.clicked.connect(self._update_selected)
-        for button in (
-            self.refresh_button,
-            self.edit_button,
-            self.remove_button,
-            self.toggle_button,
-            self.update_button,
-        ):
-            buttons.addWidget(button)
-        buttons.addStretch()
-        content.addLayout(buttons)
-        layout.addLayout(content, 1)
-        return panel
+        self.configured_table = widgets.table
+        self.refresh_button = widgets.refresh_button
+        self.edit_button = widgets.edit_button
+        self.remove_button = widgets.remove_button
+        self.toggle_button = widgets.toggle_button
+        self.update_button = widgets.update_button
+        return widgets.panel
 
     @property
     def is_busy(self) -> bool:

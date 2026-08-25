@@ -13,8 +13,15 @@ from .common import (
     configure_table,
     message_box,
 )
+from .about_page import AboutWidgets, build_about_page
 from .first_use_dialog import FirstUseDialog, SETUP_STEPS
 from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
+from .repo_page import (
+    ConfiguredPanelWidgets,
+    PresetPanelWidgets,
+    build_configured_panel,
+    build_preset_panel,
+)
 from .repo_tables import populate_repository_tables
 from .provision_pages import ProvisionPageWidgets, build_provision_pages
 from .version_dialogs import VersionDownloadDialog
@@ -31,6 +38,8 @@ from .theme import stylesheet_for_colors, theme_colors
 
 __all__ = [
     "FASTBOOT_PROGRAM",
+    "AboutWidgets",
+    "build_about_page",
     "FirstUseDialog",
     "SETUP_STEPS",
     "STORAGE_FINGERPRINT_ROLE",
@@ -42,6 +51,10 @@ __all__ = [
     "configure_table",
     "RepoSourceDialog",
     "RepoUpdateDialog",
+    "ConfiguredPanelWidgets",
+    "PresetPanelWidgets",
+    "build_configured_panel",
+    "build_preset_panel",
     "populate_repository_tables",
     "ProvisionPageWidgets",
     "build_provision_pages",
