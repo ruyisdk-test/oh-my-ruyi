@@ -123,6 +123,9 @@ The main boundaries are:
 - `ui/storage_rows.py` owns one storage target row's controls and callback
   wiring; the main window retains disk discovery, mount checks, fingerprints,
   and destructive-operation validation.
+- `ui/wizard_shell.py` owns the static provisioning shell (steps, summary,
+  stack, and navigation buttons); `ProvisionMainWindow` owns page content,
+  transitions, tab changes, and state.
 - `processes/environment.py` centralizes the common QProcess locale, Rich
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.

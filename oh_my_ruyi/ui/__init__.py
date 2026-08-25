@@ -42,6 +42,7 @@ from .version_tables import (
     set_row_foreground,
 )
 from .theme import stylesheet_for_colors, theme_colors
+from .wizard_shell import WizardShellWidgets, build_wizard_shell
 
 __all__ = [
     "FASTBOOT_PROGRAM",
@@ -76,5 +77,7 @@ __all__ = [
     "set_row_foreground",
     "stylesheet_for_colors",
     "theme_colors",
+    "WizardShellWidgets",
+    "build_wizard_shell",
     "message_box",
 ]

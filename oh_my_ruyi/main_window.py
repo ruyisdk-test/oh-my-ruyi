@@ -32,21 +32,15 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
-    QGroupBox,
-    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QSizePolicy,
-    QStackedWidget,
-    QStyle,
-    QTabWidget,
     QTableWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -98,6 +92,7 @@ from .ui.provision_content import (
 )
 from .ui.storage_rows import build_storage_row
 from .ui.theme import stylesheet_for_colors, theme_colors
+from .ui.wizard_shell import build_wizard_shell
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -303,68 +298,29 @@ class ProvisionMainWindow(QMainWindow):
     # ------------------------------------------------------------------ UI
 
     def _build_ui(self) -> None:
-        provision_tab = QWidget()
-        root_layout = QHBoxLayout(provision_tab)
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(12)
+        def build_pages(stack) -> None:
+            self._stack = stack
+            self._build_pages()
 
-        self._steps = QListWidget()
-        self._steps.setFixedWidth(180)
-        self._steps.setObjectName("stepList")
-        self._steps.setAccessibleName("Provisioning steps")
-        self._steps.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        for i, title in enumerate(self.STEP_TITLES):
-            item = QListWidgetItem(f"{i + 1}. {title}")
-            item.setData(Qt.ItemDataRole.UserRole, i)
-            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._steps.addItem(item)
-        self._steps.currentRowChanged.connect(self._on_step_clicked)
-        root_layout.addWidget(self._steps)
-
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
-        root_layout.addWidget(right, 1)
-
-        self._summary = QGroupBox("Selected options")
-        summary_layout = QVBoxLayout(self._summary)
-        self._summary_device = QLabel("Device: -")
-        self._summary_variant = QLabel("Variant: -")
-        self._summary_combo = QLabel("Image: -")
-        self._summary_packages = QLabel("Packages: -")
-        self._summary_storage = QLabel("Storage: -")
-        for label in [
-            self._summary_device,
-            self._summary_variant,
-            self._summary_combo,
-            self._summary_packages,
-            self._summary_storage,
-        ]:
-            label.setWordWrap(True)
-            summary_layout.addWidget(label)
-        right_layout.addWidget(self._summary)
-
-        self._stack = QStackedWidget()
-        right_layout.addWidget(self._stack, 1)
-        self._build_pages()
-
-        button_row = QHBoxLayout()
-        button_row.addStretch()
-        self._back_btn = QPushButton("Back")
-        self._next_btn = QPushButton("Next")
-        self._back_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack)
+        widgets = build_wizard_shell(
+            step_titles=self.STEP_TITLES,
+            style=self.style(),
+            build_pages=build_pages,
+            on_step_clicked=self._on_step_clicked,
+            on_back=self._go_back,
+            on_next=self._go_next,
         )
-        self._next_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
-        )
-        self._next_btn.setObjectName("primaryButton")
-        self._back_btn.clicked.connect(self._go_back)
-        self._next_btn.clicked.connect(self._go_next)
-        button_row.addWidget(self._back_btn)
-        button_row.addWidget(self._next_btn)
-        right_layout.addLayout(button_row)
+        self._provision_tab = widgets.provision_tab
+        self._steps = widgets.steps
+        self._summary = widgets.summary
+        self._summary_device = widgets.summary_device
+        self._summary_variant = widgets.summary_variant
+        self._summary_combo = widgets.summary_combo
+        self._summary_packages = widgets.summary_packages
+        self._summary_storage = widgets.summary_storage
+        self._stack = widgets.stack
+        self._back_btn = widgets.back_btn
+        self._next_btn = widgets.next_btn
 
         self._tabs = QTabWidget()
         self._tabs.setObjectName("featureTabs")
@@ -383,7 +339,6 @@ class ProvisionMainWindow(QMainWindow):
         self._repo_manager_tab.provision_update_finished.connect(
             self._on_provision_repo_update_finished
         )
-        self._provision_tab = provision_tab
         self._tabs.addTab(self._version_manager_tab, "Version Management")
         self._tabs.addTab(self._repo_manager_tab, "Repo Management")
         self._tabs.addTab(self._provision_tab, "Device Provision")
