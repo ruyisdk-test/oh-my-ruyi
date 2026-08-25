@@ -16,6 +16,11 @@ from .common import (
 from .first_use_dialog import FirstUseDialog, SETUP_STEPS
 from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .version_dialogs import VersionDownloadDialog
+from .version_tables import (
+    populate_available_versions_table,
+    populate_installed_versions_table,
+    set_row_foreground,
+)
 
 __all__ = [
     "FASTBOOT_PROGRAM",
@@ -28,5 +33,8 @@ __all__ = [
     "configure_table",
     "RepoSourceDialog",
     "RepoUpdateDialog",
+    "populate_available_versions_table",
+    "populate_installed_versions_table",
+    "set_row_foreground",
     "message_box",
 ]

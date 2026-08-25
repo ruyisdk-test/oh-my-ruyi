@@ -48,7 +48,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QTabWidget,
     QTableWidget,
-    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -87,11 +86,15 @@ from .ui.common import (
     FASTBOOT_PROGRAM,
     STORAGE_FINGERPRINT_ROLE,
     STORAGE_MOUNTED_ROLE,
-    VersionTableItem as _VersionTableItem,
     configure_table,
     message_box as _message_box,
 )
 from .ui.version_dialogs import VersionDownloadDialog as _VersionDownloadDialog
+from .ui.version_tables import (
+    populate_available_versions_table,
+    populate_installed_versions_table,
+    set_row_foreground,
+)
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -2525,38 +2528,13 @@ class ProvisionMainWindow(QMainWindow):
         *,
         highlight_release: version_manager.RuyiRelease | None = None,
     ) -> None:
-        table = self._pm_available_table
-        releases = [*self._pm_catalog_releases, *self._pm_custom_releases]
-        table.blockSignals(True)
-        table.setSortingEnabled(False)
-        table.setRowCount(len(releases))
-        for row, release in enumerate(releases):
-            version_item = _VersionTableItem(release.version)
-            version_item.setData(Qt.ItemDataRole.UserRole, release)
-            table.setItem(row, 0, version_item)
-            table.setItem(row, 1, QTableWidgetItem(_(release.channel)))
-            architecture = (
-                version_manager.normalize_architecture(release.architecture)
-                or release.architecture
-            )
-            table.setItem(row, 2, QTableWidgetItem(architecture))
-            table.setItem(row, 3, QTableWidgetItem(release.release_date[:10]))
-            if release is highlight_release:
-                self._set_pm_row_foreground(table, row, "success")
-        table.setSortingEnabled(True)
-        table.sortItems(0, Qt.SortOrder.DescendingOrder)
-        table.clearSelection()
-        if selected_url is not None:
-            for row in range(table.rowCount()):
-                item = table.item(row, 0)
-                release = item.data(Qt.ItemDataRole.UserRole)
-                if (
-                    isinstance(release, version_manager.RuyiRelease)
-                    and release.download_urls[0] == selected_url
-                ):
-                    table.selectRow(row)
-                    break
-        table.blockSignals(False)
+        populate_available_versions_table(
+            self._pm_available_table,
+            [*self._pm_catalog_releases, *self._pm_custom_releases],
+            selected_url,
+            highlight_release=highlight_release,
+            highlight_foreground=self._pm_foreground("success"),
+        )
 
     def _populate_pm_installed_table(
         self,
@@ -2567,53 +2545,19 @@ class ProvisionMainWindow(QMainWindow):
         latest_channel: str | None = None,
         active_is_latest: bool | None = None,
     ) -> None:
-        table = self._pm_installed_table
-        table.blockSignals(True)
-        table.setSortingEnabled(False)
-        table.setRowCount(len(installed))
-        latest_versions = {release.version for release in self._pm_catalog_releases}
-        for row, item in enumerate(installed):
-            version_item = _VersionTableItem(item.version)
-            version_item.setData(Qt.ItemDataRole.UserRole, item)
-            table.setItem(row, 0, version_item)
-            is_active = active.managed and active.target == item.path.resolve(
-                strict=False
-            )
-            is_latest = (
-                latest_version is not None
-                and latest_channel is not None
-                and item.channel.casefold() == latest_channel.casefold()
-                and version_manager.version_sort_key(item.version)
-                == version_manager.version_sort_key(latest_version)
-            )
-            table.setItem(row, 1, QTableWidgetItem(_(item.channel)))
-            activate_item = QTableWidgetItem(_("Activate") if is_active else "")
-            if is_active and active_is_latest is False:
-                activate_item.setForeground(self._pm_foreground("error"))
-            table.setItem(row, 2, activate_item)
-            table.setItem(row, 3, QTableWidgetItem(self._format_file_size(item.size)))
-            table.setItem(
-                row,
-                4,
-                QTableWidgetItem(
-                    _("Latest") if item.version in latest_versions else ""
-                ),
-            )
-            if is_latest and not is_active:
-                self._set_pm_row_foreground(table, row, "success")
-        table.setSortingEnabled(True)
-        table.sortItems(0, Qt.SortOrder.DescendingOrder)
-        table.clearSelection()
-        if selected_version is not None:
-            for row in range(table.rowCount()):
-                item = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-                if (
-                    isinstance(item, version_manager.InstalledVersion)
-                    and item.version == selected_version
-                ):
-                    table.selectRow(row)
-                    break
-        table.blockSignals(False)
+        populate_installed_versions_table(
+            self._pm_installed_table,
+            installed,
+            active,
+            selected_version,
+            self._pm_catalog_releases,
+            latest_version=latest_version,
+            latest_channel=latest_channel,
+            active_is_latest=active_is_latest,
+            outdated_foreground=self._pm_foreground("error"),
+            latest_foreground=self._pm_foreground("success"),
+            size_formatter=self._format_file_size,
+        )
 
     def _set_pm_row_foreground(
         self,
@@ -2621,11 +2565,7 @@ class ProvisionMainWindow(QMainWindow):
         row: int,
         kind: str,
     ) -> None:
-        foreground = self._pm_foreground(kind)
-        for column in range(table.columnCount()):
-            item = table.item(row, column)
-            if item is not None:
-                item.setForeground(foreground)
+        set_row_foreground(table, row, self._pm_foreground(kind))
 
     @staticmethod
     def _format_file_size(size: int) -> str:

@@ -36,6 +36,7 @@ and the boundary checks required before invoking those APIs.
 | `core/repo_presets.py` | Immutable repository/source preset data | TOML writes or repository I/O |
 | `ui/common.py` | Shared Qt constants, translated message-box adapter, semantic version table item, and table setup policy | Application state |
 | `ui/version_dialogs.py`, `ui/repo_dialogs.py`, `ui/first_use_dialog.py` | Reusable Qt dialogs with narrow signal/data contracts | Starting workers or changing filesystem state |
+| `ui/version_tables.py` | Reusable release/local-version table rendering and selection preservation | Catalog fetching, activation, or application state |
 | `worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
 | `workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
 | `worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |

@@ -99,6 +99,8 @@ The main boundaries are:
   `ui/version_dialogs.py`,
   `ui/repo_dialogs.py`, and `ui/first_use_dialog.py` own reusable dialogs;
   they expose only signals and display/state methods, never workers or I/O.
+- `ui/version_tables.py` owns release and installed-version table rendering;
+  the main window supplies data and theme brushes and keeps orchestration.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.
