@@ -94,8 +94,9 @@ The main boundaries are:
   stable.
 - `core/repo_presets.py` owns immutable preset data; `repo_presets.py` remains a
   compatibility import.
-- `ui/common.py` owns shared Qt constants, translated message boxes, and
-  semantic version table sorting. `ui/version_dialogs.py`,
+- `ui/common.py` owns shared Qt constants, translated message boxes, semantic
+  version table sorting, and the common table selection/header policy.
+  `ui/version_dialogs.py`,
   `ui/repo_dialogs.py`, and `ui/first_use_dialog.py` own reusable dialogs;
   they expose only signals and display/state methods, never workers or I/O.
 - `repo_manager_tab.py` owns repository configuration and update interactions.

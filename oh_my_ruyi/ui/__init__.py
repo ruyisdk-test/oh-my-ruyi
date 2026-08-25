@@ -10,6 +10,7 @@ from .common import (
     STORAGE_FINGERPRINT_ROLE,
     STORAGE_MOUNTED_ROLE,
     VersionTableItem,
+    configure_table,
     message_box,
 )
 from .first_use_dialog import FirstUseDialog, SETUP_STEPS
@@ -24,6 +25,7 @@ __all__ = [
     "STORAGE_MOUNTED_ROLE",
     "VersionDownloadDialog",
     "VersionTableItem",
+    "configure_table",
     "RepoSourceDialog",
     "RepoUpdateDialog",
     "message_box",

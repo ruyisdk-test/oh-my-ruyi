@@ -10,10 +10,8 @@ from typing import Callable
 
 from PySide6.QtCore import QProcess, QProcessEnvironment, QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QDialog,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -28,6 +26,7 @@ from . import repo_manager
 from .i18n import apply_qprocess_locale, _, translate_widget_tree
 from .rich_output import RICH_TERMINAL_ENV, strip_terminal_controls
 from .ui.repo_dialogs import RepoSourceDialog, RepoUpdateDialog
+from .ui.common import configure_table
 
 _REPO_ROLE = Qt.ItemDataRole.UserRole
 
@@ -110,7 +109,7 @@ class RepoManagementTab(QWidget):
         layout.addWidget(QLabel("<b>Preset repositories</b>"))
         content = QHBoxLayout()
         self.preset_table = QTableWidget(0, 2)
-        self._configure_table(
+        configure_table(
             self.preset_table,
             ["ID", "Name"],
             stretch_column=1,
@@ -135,7 +134,7 @@ class RepoManagementTab(QWidget):
         layout.addWidget(QLabel("<b>Configured repositories</b>"))
         content = QHBoxLayout()
         self.configured_table = QTableWidget(0, 6)
-        self._configure_table(
+        configure_table(
             self.configured_table,
             ["ID", "Name", "Source", "Branch", "Priority", "State"],
             stretch_column=2,
@@ -167,27 +166,6 @@ class RepoManagementTab(QWidget):
         content.addLayout(buttons)
         layout.addLayout(content, 1)
         return panel
-
-    @staticmethod
-    def _configure_table(
-        table: QTableWidget,
-        headers: list[str],
-        *,
-        stretch_column: int,
-    ) -> None:
-        table.setHorizontalHeaderLabels(headers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(True)
-        table.setSortingEnabled(False)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
-        )
-        table.horizontalHeader().setSectionResizeMode(
-            stretch_column, QHeaderView.ResizeMode.Stretch
-        )
 
     @property
     def is_busy(self) -> bool:

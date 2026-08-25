@@ -27,14 +27,12 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
     QGroupBox,
-    QHeaderView,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -90,6 +88,7 @@ from .ui.common import (
     STORAGE_FINGERPRINT_ROLE,
     STORAGE_MOUNTED_ROLE,
     VersionTableItem as _VersionTableItem,
+    configure_table,
     message_box as _message_box,
 )
 from .ui.version_dialogs import VersionDownloadDialog as _VersionDownloadDialog
@@ -810,10 +809,11 @@ class ProvisionMainWindow(QMainWindow):
 
         content = QHBoxLayout()
         self._pm_available_table = QTableWidget(0, 4)
-        self._configure_pm_table(
+        configure_table(
             self._pm_available_table,
             ["Version", "Channel", "Architecture", "Released"],
             stretch_column=0,
+            sorting=True,
         )
         self._pm_available_table.setObjectName("availableVersionTable")
         self._pm_available_table.setAccessibleName("Available ruyi versions")
@@ -855,10 +855,11 @@ class ProvisionMainWindow(QMainWindow):
 
         content = QHBoxLayout()
         self._pm_installed_table = QTableWidget(0, 5)
-        self._configure_pm_table(
+        configure_table(
             self._pm_installed_table,
             ["Version", "Channel", "State", "Size", "Note"],
             stretch_column=0,
+            sorting=True,
         )
         self._pm_installed_table.setObjectName("installedVersionTable")
         self._pm_installed_table.setAccessibleName("Downloaded ruyi versions")
@@ -910,28 +911,6 @@ class ProvisionMainWindow(QMainWindow):
         label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return label
-
-    @staticmethod
-    def _configure_pm_table(
-        table: QTableWidget,
-        headers: list[str],
-        *,
-        stretch_column: int,
-    ) -> None:
-        table.setHorizontalHeaderLabels(headers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(True)
-        table.setSortingEnabled(True)
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
-        )
-        table.horizontalHeader().setSectionResizeMode(
-            stretch_column,
-            QHeaderView.ResizeMode.Stretch,
-        )
 
     def _build_pages(self) -> None:
         self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")

@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTableWidgetItem
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
 from .. import version_manager
 from ..i18n import _
@@ -31,10 +36,35 @@ class VersionTableItem(QTableWidgetItem):
         return super().__lt__(other)
 
 
+def configure_table(
+    table: QTableWidget,
+    headers: list[str],
+    *,
+    stretch_column: int,
+    sorting: bool = False,
+) -> None:
+    """Apply the application's consistent table selection and header policy."""
+    table.setHorizontalHeaderLabels(headers)
+    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.setAlternatingRowColors(True)
+    table.setSortingEnabled(sorting)
+    table.verticalHeader().setVisible(False)
+    table.horizontalHeader().setSectionResizeMode(
+        QHeaderView.ResizeMode.ResizeToContents
+    )
+    table.horizontalHeader().setSectionResizeMode(
+        stretch_column,
+        QHeaderView.ResizeMode.Stretch,
+    )
+
+
 __all__ = [
     "FASTBOOT_PROGRAM",
     "STORAGE_FINGERPRINT_ROLE",
     "STORAGE_MOUNTED_ROLE",
     "VersionTableItem",
+    "configure_table",
     "message_box",
 ]
