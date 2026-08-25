@@ -444,6 +444,7 @@ class VersionManagementMixin:
         )
         self._pm_worker.finished.connect(self._on_pm_activation_finished)
         self._pm_worker.failed.connect(self._on_pm_worker_failed)
+        self._pm_worker.cancelled.connect(self._on_pm_activation_cancelled)
         self._pm_worker.password_requested.connect(
             self._on_pm_password_requested,
             Qt.ConnectionType.BlockingQueuedConnection,
@@ -623,11 +624,14 @@ class VersionManagementMixin:
                 self._start_first_use_activation()
 
     def _on_pm_download_failed(self, msg: str) -> None:
+        first_use_download = self._first_use_operation == "download"
         self._cleanup_pm_thread()
         self._pm_status.setText(_("Download failed. See the download dialog."))
         self._pm_status.setToolTip("")
         self._set_status_kind(self._pm_status, "error")
         self._refresh_pm_versions()
+        if first_use_download:
+            self._cleanup_empty_first_use_data_directory()
         dialog = self._pm_download_dialog
         if dialog is not None:
             dialog.show_failure(msg)
@@ -674,10 +678,29 @@ class VersionManagementMixin:
             self._first_use_activated = True
             if self._first_use_active:
                 self._start_first_use_repository_step()
-            else:
+            elif not self._first_use_cancelled:
                 QTimer.singleShot(0, self._maybe_start_pm_telemetry)
             return
         self._maybe_start_pm_telemetry()
+
+    def _on_pm_activation_cancelled(self) -> None:
+        first_use_activation = self._first_use_operation == "activate"
+        self._first_use_operation = ""
+        self._cleanup_pm_thread()
+        self._pm_status.setText(_("Ruyi activation was cancelled."))
+        self._pm_status.setToolTip("")
+        self._set_status_kind(self._pm_status, "warning")
+        self._refresh_pm_versions()
+        if first_use_activation and self._first_use_active:
+            dialog = self._first_use_dialog
+            if dialog is not None:
+                self._first_use_action = "activate"
+                dialog.set_stage(
+                    1,
+                    _("Ruyi activation was cancelled."),
+                    action="Retry activation",
+                    kind="warning",
+                )
 
     def _on_pm_delete_finished(
         self,
@@ -1151,14 +1174,9 @@ class VersionManagementMixin:
     def _refresh_pm_buttons(self) -> None:
         repo_tab = getattr(self, "_repo_manager_tab", None)
         if repo_tab is not None:
-            repo_tab.set_external_busy(
-                self._worker is not None
-                or self._pm_worker is not None
-                or self._download_process is not None
-                or self._fastboot_process is not None
-            )
+            repo_tab.set_external_busy(self._has_external_busy_operation())
         repo_busy = bool(repo_tab is not None and self._repo_manager_tab.is_busy)
-        busy = self._pm_worker is not None or repo_busy
+        busy = self._has_external_busy_operation() or repo_busy
         controls_enabled = not busy and not self._pm_externally_managed
         release = self._selected_pm_release()
         installed = self._selected_pm_installed_version()

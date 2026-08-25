@@ -42,11 +42,11 @@ def test_repo_init_disables_repo_management(
 
     window._start_repo_init()
 
-    assert window._worker is not None
+    assert window.repo_controller._worker is not None
     assert window._repo_manager_tab._external_busy
     assert not window._repo_manager_tab.preset_table.isEnabled()
 
-    window._worker = None
+    window.repo_controller._worker = None
 
 
 def test_disabled_default_repo_stays_on_ready_page(

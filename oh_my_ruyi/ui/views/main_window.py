@@ -7,8 +7,6 @@ controls for the current step.
 """
 
 from __future__ import annotations
-
-from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 from PySide6.QtCore import (
@@ -107,12 +105,23 @@ class ProvisionMainWindow(
         self._machine = self.provision_controller.machine
         self.provision_controller.step_changed.connect(self._on_machine_step_changed)
         self.provision_controller.busy_changed.connect(
-            lambda _busy: self._refresh_buttons()
+            self._on_provision_controller_busy_changed
         )
         self.provision_controller.download_output.connect(self._on_download_output_data)
         self.provision_controller.download_finished.connect(
             self._on_download_finished_controller
         )
+        self.provision_controller.preparation_finished.connect(
+            self._on_preparation_finished_controller
+        )
+        self.provision_controller.preparation_failed.connect(
+            self._on_preparation_failed_controller
+        )
+        self.repo_controller.sync_finished.connect(self._on_repo_synced)
+        self.repo_controller.sync_failed.connect(self._on_worker_failed)
+        self.repo_controller.init_finished.connect(self._on_repo_ready)
+        self.repo_controller.init_failed.connect(self._on_worker_failed)
+        self.repo_controller.busy_changed.connect(lambda _busy: self._refresh_buttons())
         self._logger = logger
         from ...workers.workers import _BaseWorker
 
@@ -120,7 +129,6 @@ class ProvisionMainWindow(
         from ...workers.worker_manager import WorkerTaskRunner
 
         self._runner = WorkerTaskRunner(self)
-        self._download_process: QProcess | None = None
         self._fastboot_process: QProcess | None = None
         self._fastboot_output = bytearray()
         self._fastboot_timed_out = False
@@ -128,7 +136,6 @@ class ProvisionMainWindow(
         self._fastboot_timer.setSingleShot(True)
         self._fastboot_timer.setInterval(10_000)
         self._fastboot_timer.timeout.connect(self._on_fastboot_timeout)
-        self._download_cancelled = False
         self._flash_cancel_requested = False
         self._applying_styles = False
         self._pm_versions_directory = (
@@ -188,6 +195,8 @@ class ProvisionMainWindow(
         self._first_use_catalog_error: str | None = None
         self._first_use_catalog_pending = self._first_use_active
         self._first_use_activated = False
+        self._first_use_cancelled = False
+        self._close_when_provisioning_idle = False
         self._pm_first_run_check_pending = auto_start and not self._first_use_active
 
         from typing import Any
@@ -214,21 +223,42 @@ class ProvisionMainWindow(
         self._stop_fastboot_check()
         if hasattr(self, "_about_tab"):
             self._about_tab.stop_path_probe()
-        if self._download_process is not None:
+        if self.provision_controller.download_is_busy:
             ret = _message_box(
                 QMessageBox.question,
                 self,
-                "Cancel download?",
-                "A download or package installation is still running. Cancel it and close?",
+                "Cancel operation?",
+                "A provisioning operation is still running. Cancel it and close?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if ret != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-            self._download_cancelled = True
-            self._terminate_download_process()
-            event.accept()
+            self.provision_controller.cancel_current_task()
+            if self.provision_controller.is_busy:
+                self._close_when_provisioning_idle = True
+                event.ignore()
+                return
+
+        elif self.provision_controller.is_busy:
+            _message_box(
+                QMessageBox.warning,
+                self,
+                "Operation in progress",
+                "Flash preparation is still running. Wait for it to finish before closing this window.",
+            )
+            event.ignore()
+            return
+
+        if self.repo_controller.is_busy:
+            _message_box(
+                QMessageBox.warning,
+                self,
+                "Operation in progress",
+                "A metadata operation is still running. Wait for it to finish before closing this window.",
+            )
+            event.ignore()
             return
 
         if self._worker is not None:
@@ -561,12 +591,7 @@ class ProvisionMainWindow(
     def _refresh_buttons(self) -> None:
         repo_tab = getattr(self, "_repo_manager_tab", None)
         if repo_tab is not None:
-            repo_tab.set_external_busy(
-                self._worker is not None
-                or self._pm_worker is not None
-                or self._download_process is not None
-                or self._fastboot_process is not None
-            )
+            repo_tab.set_external_busy(self._has_external_busy_operation())
         busy = self._is_busy()
         self._back_btn.setEnabled(
             not busy
@@ -585,7 +610,7 @@ class ProvisionMainWindow(
         else:
             self._next_btn.setText(_("Next"))
         self._update_repo_btn.setEnabled(not busy and self.state.mr is not None)
-        download_running = self.provision_controller.is_busy
+        download_running = self.provision_controller.download_is_busy
         self._cancel_download_btn.setVisible(
             self._machine.current_step == self._machine.STEP_DOWNLOAD
             and download_running
@@ -634,8 +659,46 @@ class ProvisionMainWindow(
         repo_tab = getattr(self, "_repo_manager_tab", None)
         return (
             self._worker is not None
-            or self._download_process is not None
+            or self._pm_worker is not None
             or self._fastboot_process is not None
             or self.provision_controller.is_busy
+            or self.repo_controller.is_busy
             or bool(repo_tab is not None and repo_tab.is_busy)
         )
+
+    def _has_external_busy_operation(self) -> bool:
+        return (
+            self._worker is not None
+            or self._pm_worker is not None
+            or self._fastboot_process is not None
+            or self.provision_controller.is_busy
+            or self.repo_controller.is_busy
+        )
+
+    def _on_provision_controller_busy_changed(self, busy: bool) -> None:
+        self._refresh_buttons()
+        if not busy and getattr(self, "_close_when_provisioning_idle", False):
+            self._close_when_provisioning_idle = False
+            QTimer.singleShot(0, self.close)
+
+    def _on_preparation_finished_controller(self, _prepared) -> None:
+        self._download_status.setText(_("Download complete."))
+        self._download_status.setToolTip("")
+        self._machine.download_ok = True
+        self._machine.download_recoverable = False
+        self._set_status_kind(self._download_status, "success")
+        self._refresh_buttons()
+        if self._close_when_provisioning_idle:
+            return
+        self._advance_after_download()
+
+    def _on_preparation_failed_controller(self, error: str) -> None:
+        self._download_log.append_plain_status(
+            _("Preparing flash failed: {error}", error=error)
+        )
+        self._download_status.setText(_("Preparing flash failed. See output."))
+        self._download_status.setToolTip("")
+        self._machine.download_ok = False
+        self._machine.download_recoverable = True
+        self._set_status_kind(self._download_status, "error")
+        self._refresh_buttons()

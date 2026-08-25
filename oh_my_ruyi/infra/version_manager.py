@@ -294,8 +294,8 @@ def binary_path(version: str, directory: Path) -> Path:
 def release_from_url(url: str) -> RuyiRelease:
     """Parse a transient custom release from a strict standalone-binary URL."""
     parsed = urlsplit(url.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise VersionManagerError("download URL must use http or https")
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise VersionManagerError("download URL must use https")
     filename = unquote(Path(parsed.path).name)
     match = _CUSTOM_BINARY_RE.fullmatch(filename)
     if match is None:

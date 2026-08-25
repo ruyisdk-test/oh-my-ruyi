@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QProcess, Signal, QTimer
 from ruyi.config import GlobalConfig
@@ -10,19 +10,9 @@ from ruyi.config import GlobalConfig
 from ..core.state import WizardState
 from ..core.state_machine import ProvisionStateMachine
 from ..i18n import _
+from ..ui.widgets.qt_logger import LogEmitter
 from ..ui.widgets.qprocess_utils import configure_qprocess_environment
-from ..workers import (
-    FlashWorker,
-    StorageDiscoveryWorker,
-    TelemetrySetupWorker,
-    WorkerTaskRunner,
-)
-
-if TYPE_CHECKING:
-    from pathlib import Path
-    from ..ui.widgets.qt_logger import LogEmitter
-
-FASTBOOT_PROGRAM = "fastboot"
+from ..workers import ProvisionPreparationWorker, WorkerTaskRunner
 
 
 class ProvisionController(QObject):
@@ -34,30 +24,12 @@ class ProvisionController(QObject):
     step_changed = Signal(int)
     busy_changed = Signal(bool)
 
-    # Fastboot Signals
-    fastboot_started = Signal()
-    fastboot_output = Signal(bytes)
-    fastboot_finished = Signal(bool, str)  # success, message
-
     # Download Signals
     download_started = Signal()
     download_output = Signal(bytes)
-    download_finished = Signal(bool, str)  # success, message
-
-    # Storage Discovery Signals
-    storage_discovery_started = Signal()
-    storage_discovery_finished = Signal(object)  # dict[str, os_storage.HostBlockDevice]
-    storage_discovery_failed = Signal(str)
-
-    # Flash Signals
-    flash_started = Signal()
-    flash_finished = Signal(object)  # ruyi_adapter.FlashResult
-    flash_failed = Signal(str)
-
-    # Telemetry Signals
-    telemetry_started = Signal()
-    telemetry_finished = Signal(bool, str)  # success, message
-    telemetry_failed = Signal(str)
+    download_finished = Signal(bool, str)  # download success, message
+    preparation_finished = Signal(object)
+    preparation_failed = Signal(str)
 
     def __init__(self, config: GlobalConfig, emitter: LogEmitter, parent=None):
         super().__init__(parent)
@@ -67,18 +39,8 @@ class ProvisionController(QObject):
         self._runner = WorkerTaskRunner(self)
         self._worker = None
 
-        self._fastboot_process: QProcess | None = None
-        self._fastboot_output = bytearray()
-        self._fastboot_timed_out = False
-        self._fastboot_timer = QTimer(self)
-        self._fastboot_timer.setSingleShot(True)
-        self._fastboot_timer.setInterval(10_000)
-        self._fastboot_timer.timeout.connect(self._on_fastboot_timeout)
-
         self._download_process: QProcess | None = None
         self._download_cancelled = False
-
-        self._flash_cancel_requested = False
 
         self._kill_timer = QTimer(self)
         self._kill_timer.setSingleShot(True)
@@ -87,11 +49,12 @@ class ProvisionController(QObject):
 
     @property
     def is_busy(self) -> bool:
-        return (
-            self._worker is not None
-            or self._fastboot_process is not None
-            or self._download_process is not None
-        )
+        return self._worker is not None or self._download_process is not None
+
+    @property
+    def download_is_busy(self) -> bool:
+        """Whether package download or installation is still running."""
+        return self._download_process is not None
 
     def _on_step_changed(self, step: int) -> None:
         self.step_changed.emit(step)
@@ -99,99 +62,18 @@ class ProvisionController(QObject):
     def cancel_current_task(self) -> None:
         if self._download_process is not None:
             self._cancel_download()
-        elif isinstance(self._worker, FlashWorker):
-            self._flash_cancel_requested = True
-            self._worker.request_cancel()
 
-    # --- Fastboot ---
-
-    def start_fastboot_check(self) -> bool:
-        if self.is_busy:
-            return False
-
-        self._fastboot_output.clear()
-        self._fastboot_timed_out = False
-
-        process = QProcess(self)
-        self._fastboot_process = process
-        process.setProgram(FASTBOOT_PROGRAM)
-        process.setArguments(["devices"])
-
-        process.readyReadStandardOutput.connect(self._read_fastboot_output)
-        process.readyReadStandardError.connect(self._read_fastboot_output)
-        process.finished.connect(
-            lambda code, status, p=process: self._on_fastboot_finished(p, code)
-        )
-        process.errorOccurred.connect(
-            lambda error, p=process: self._on_fastboot_error(p, error)
-        )
-
-        self.fastboot_started.emit()
-        self.busy_changed.emit(True)
-        self._fastboot_timer.start()
-        process.start()
-        return True
-
-    def _read_fastboot_output(self) -> None:
-        if self._fastboot_process is None:
-            return
-        data = bytes(self._fastboot_process.readAll())
-        self._fastboot_output.extend(data)
-        self.fastboot_output.emit(data)
-
-    def _on_fastboot_finished(self, process: QProcess, ret: int) -> None:
-        if process != self._fastboot_process:
-            process.deleteLater()
-            return
-        self._fastboot_timer.stop()
-        self._read_fastboot_output()
-        self._fastboot_process = None
-        process.deleteLater()
-
-        if self._fastboot_timed_out:
-            self.fastboot_finished.emit(False, "fastboot devices timed out.")
-        elif ret != 0:
-            self.fastboot_finished.emit(
-                False, f"fastboot check failed (exit code {ret})."
-            )
-        else:
-            self.fastboot_finished.emit(True, "fastboot check successful.")
-        self.busy_changed.emit(False)
-
-    def _on_fastboot_error(
-        self, process: QProcess, error: QProcess.ProcessError
-    ) -> None:
-        if process != self._fastboot_process:
-            return
-        self._fastboot_timer.stop()
-        self._fastboot_process = None
-        process.deleteLater()
-
-        if error == QProcess.ProcessError.FailedToStart:
-            self.fastboot_finished.emit(False, f"Could not run {FASTBOOT_PROGRAM}.")
-        else:
-            self.fastboot_finished.emit(False, "fastboot process crashed.")
-        self.busy_changed.emit(False)
-
-    def _on_fastboot_timeout(self) -> None:
-        self._fastboot_timed_out = True
-        if self._fastboot_process:
-            self._fastboot_process.terminate()
-
-    def stop_fastboot_check(self) -> None:
-        self._fastboot_timer.stop()
-        if self._fastboot_process:
-            self._fastboot_process.kill()
-            self._fastboot_process = None
-            self.busy_changed.emit(False)
-
-    # --- Download ---
+    # --- Package download and preparation ---
 
     def start_download(self) -> bool:
         if self.is_busy:
             return False
 
         self.machine.download_ok = False
+        self.state.prepared = None
+        self.state.host_blkdev_map.clear()
+        self.state.host_blkdev_fingerprints.clear()
+        self.state.flash_ret = None
         self._download_cancelled = False
         self.machine.download_recoverable = False
 
@@ -232,24 +114,32 @@ class ProvisionController(QObject):
         self._download_process = None
         process.deleteLater()
 
-        if self._download_cancelled:
+        cancelled = self._download_cancelled
+        if cancelled:
             self.machine.download_recoverable = True
-            self.download_finished.emit(False, _("Download cancelled."))
+            message = _("Download cancelled.")
         elif code != 0:
             self.machine.download_recoverable = True
-            self.download_finished.emit(
-                False, _("Download failed (exit code {code}).", code=code)
-            )
+            message = _("Download failed (exit code {code}).", code=code)
         else:
-            self.machine.download_ok = True
-            self.download_finished.emit(True, _("Download successful."))
-        self.busy_changed.emit(False)
+            message = _("Download successful.")
+        success = not cancelled and code == 0
+        if success and not self._start_preparation_worker():
+            self.download_finished.emit(True, message)
+            self.preparation_failed.emit(_("Could not start flash preparation."))
+            self.busy_changed.emit(False)
+            return
+        self.download_finished.emit(success, message)
+        if not success:
+            self.busy_changed.emit(False)
 
     def _on_download_error(
         self, process: QProcess, error: QProcess.ProcessError
     ) -> None:
         if process != self._download_process:
             return
+        self._kill_timer.stop()
+        self._read_download_output()
         self._download_process = None
         process.deleteLater()
 
@@ -262,17 +152,43 @@ class ProvisionController(QObject):
             self.download_finished.emit(False, _("Download process crashed."))
         self.busy_changed.emit(False)
 
+    def _start_preparation_worker(self) -> bool:
+        if self._worker is not None or self.state.mr is None:
+            return False
+        self._worker = ProvisionPreparationWorker(
+            self.state.config,
+            self.state.mr,
+            list(self.state.pkg_atoms),
+        )
+        self._worker.finished.connect(self._on_preparation_finished)
+        self._worker.failed.connect(self._on_preparation_failed)
+        self._runner.run_worker(self._worker)
+        return True
+
+    def _on_preparation_finished(self, prepared) -> None:
+        self._worker = None
+        self.state.prepared = prepared
+        self.machine.download_ok = True
+        self.preparation_finished.emit(prepared)
+        self.busy_changed.emit(False)
+
+    def _on_preparation_failed(self, error: str) -> None:
+        self._worker = None
+        self.machine.download_ok = False
+        self.machine.download_recoverable = True
+        self.preparation_failed.emit(error)
+        self.busy_changed.emit(False)
+
     def _cancel_download(self) -> None:
         process = self._download_process
         if process is None or self._download_cancelled:
             return
         self._download_cancelled = True
         pid = process.processId()
-        import signal as os_signal
 
         if pid > 0 and hasattr(os, "killpg"):
             try:
-                os.killpg(pid, os_signal.SIGTERM)
+                os.killpg(pid, signal.SIGTERM)
             except (ProcessLookupError, PermissionError):
                 process.terminate()
         else:
@@ -280,79 +196,13 @@ class ProvisionController(QObject):
         self._kill_timer.start()
 
     def _force_kill_download_process(self) -> None:
-        if (
-            self._download_process is not None
-            and self._download_process.state() != QProcess.ProcessState.NotRunning
-        ):
-            self._download_process.kill()
-
-    # --- Storage Discovery ---
-
-    def start_storage_discovery(self) -> None:
-        if self.is_busy:
+        process = self._download_process
+        if process is None or process.state() == QProcess.ProcessState.NotRunning:
             return
-        self.storage_discovery_started.emit()
-        self.busy_changed.emit(True)
-        self._worker = StorageDiscoveryWorker()
-        self._worker.finished.connect(self._on_storage_finished)
-        self._worker.failed.connect(self._on_storage_failed)
-        self._runner.run_worker(self._worker)
-
-    def _on_storage_finished(self, disks) -> None:
-        self._worker = None
-        self.storage_discovery_finished.emit(disks)
-        self.busy_changed.emit(False)
-
-    def _on_storage_failed(self, error: str) -> None:
-        self._worker = None
-        self.storage_discovery_failed.emit(error)
-        self.busy_changed.emit(False)
-
-    # --- Flash ---
-
-    def start_flash(self, device_node, versions_directory) -> None:
-        if self.is_busy:
-            return
-        self._flash_cancel_requested = False
-        self.machine.flash_recoverable = False
-        self.flash_started.emit()
-        self.busy_changed.emit(True)
-        self._worker = FlashWorker(
-            self.state.config, self.state.prepared, device_node, versions_directory
-        )
-        self._worker.finished.connect(self._on_flash_finished)
-        self._worker.failed.connect(self._on_flash_failed)
-        self._runner.run_worker(self._worker)
-
-    def _on_flash_finished(self, result) -> None:
-        self._worker = None
-        self.flash_finished.emit(result)
-        self.busy_changed.emit(False)
-
-    def _on_flash_failed(self, error: str) -> None:
-        self._worker = None
-        self.machine.flash_recoverable = not self._flash_cancel_requested
-        self.flash_failed.emit(error)
-        self.busy_changed.emit(False)
-
-    # --- Telemetry ---
-
-    def start_telemetry_setup(self, activation_link: Path, mode: str) -> None:
-        if self.is_busy:
-            return
-        self.telemetry_started.emit()
-        self.busy_changed.emit(True)
-        self._worker = TelemetrySetupWorker(activation_link, mode)
-        self._worker.finished.connect(self._on_telemetry_finished)
-        self._worker.failed.connect(self._on_telemetry_failed)
-        self._runner.run_worker(self._worker)
-
-    def _on_telemetry_finished(self) -> None:
-        self._worker = None
-        self.telemetry_finished.emit(True, "")
-        self.busy_changed.emit(False)
-
-    def _on_telemetry_failed(self, error: str) -> None:
-        self._worker = None
-        self.telemetry_failed.emit(False, error)
-        self.busy_changed.emit(False)
+        pid = process.processId()
+        if pid > 0 and hasattr(os, "killpg"):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        process.kill()

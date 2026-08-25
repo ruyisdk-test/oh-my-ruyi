@@ -27,6 +27,7 @@ class RepoController(QObject):
     sync_started = Signal()
     sync_finished = Signal(object)  # CompositeRepo
     sync_failed = Signal(str)
+    busy_changed = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,15 +45,18 @@ class RepoController(QObject):
         self._worker = RepoInitWorker(config)
         self._worker.finished.connect(self._on_init_finished)
         self._worker.failed.connect(self._on_init_failed)
+        self.busy_changed.emit(True)
         self._runner.run_worker(self._worker)
 
     def _on_init_finished(self, mr: CompositeRepo) -> None:
         self._worker = None
         self.init_finished.emit(mr)
+        self.busy_changed.emit(False)
 
     def _on_init_failed(self, error: str) -> None:
         self._worker = None
         self.init_failed.emit(error)
+        self.busy_changed.emit(False)
 
     def start_repo_sync(self, config: GlobalConfig, mr: CompositeRepo) -> None:
         if self.is_busy:
@@ -61,12 +65,15 @@ class RepoController(QObject):
         self._worker = RepoSyncWorker(config, mr)
         self._worker.finished.connect(self._on_sync_finished)
         self._worker.failed.connect(self._on_sync_failed)
+        self.busy_changed.emit(True)
         self._runner.run_worker(self._worker)
 
     def _on_sync_finished(self, mr: CompositeRepo) -> None:
         self._worker = None
         self.sync_finished.emit(mr)
+        self.busy_changed.emit(False)
 
     def _on_sync_failed(self, error: str) -> None:
         self._worker = None
         self.sync_failed.emit(error)
+        self.busy_changed.emit(False)

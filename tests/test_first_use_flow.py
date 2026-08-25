@@ -201,6 +201,41 @@ def test_first_use_exits_and_cancels_repository_update(
     assert cancelled == [None]
 
 
+def test_first_use_download_failure_removes_empty_managed_data_directory(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    window = _first_use_window(qtbot, monkeypatch, tmp_path)
+    window._first_use_operation = "download"
+    window._pm_versions_directory.mkdir(parents=True)
+
+    window._on_pm_download_failed("mirror unavailable")
+
+    assert not window._pm_versions_directory.exists()
+    assert not window._first_use_data_directory.exists()
+    assert window._first_use_operation == "download"
+
+
+def test_first_use_exit_requests_activation_cancellation(
+    qtbot, monkeypatch, tmp_path
+) -> None:
+    window = _first_use_window(qtbot, monkeypatch, tmp_path)
+    cancelled: list[None] = []
+
+    class CancellableActivation:
+        def request_cancel(self) -> None:
+            cancelled.append(None)
+
+    window._pm_worker = CancellableActivation()  # type: ignore[assignment]
+    window._first_use_operation = "activate"
+
+    window._exit_first_use_setup()
+
+    assert not window._first_use_active
+    assert window._first_use_cancelled
+    assert cancelled == [None]
+    window._pm_worker = None
+
+
 def test_first_use_repo_update_opens_about_and_completes_dialog(
     qtbot,
     monkeypatch,

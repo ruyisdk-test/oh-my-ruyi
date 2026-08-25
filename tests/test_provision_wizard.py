@@ -9,7 +9,7 @@ import threading
 import time
 from types import SimpleNamespace
 import pytest
-from PySide6.QtCore import QProcess, QTimer, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication
 from oh_my_ruyi.infra import os_storage, ruyi_adapter
 from oh_my_ruyi.ui.views import _provision_wizard_mixin, main_window
@@ -115,6 +115,7 @@ def test_theme_uses_application_palette(
 def test_storage_requires_explicit_target(
     window: ProvisionMainWindow,
     monkeypatch,
+    qtbot,
 ) -> None:
     monkeypatch.setattr(os_storage, "validation_is_slow", lambda: False)
     window.state.prepared = SimpleNamespace(
@@ -134,6 +135,7 @@ def test_storage_requires_explicit_target(
     )
 
     window._populate_storage()
+    qtbot.waitUntil(lambda: window._worker is None, timeout=1000)
     target = window._storage_inputs["disk"]
 
     assert target.currentIndex() == -1
@@ -168,21 +170,6 @@ def test_flash_revalidates_mount_state(
     assert "now mounted" in window._storage_error.text()
     assert window._storage_mount_warnings["disk"].isVisibleTo(window)
     assert not window._storage_mount_confirmations["disk"].isChecked()
-    assert window._worker is None
-
-
-def test_failed_download_start_releases_busy_state(window: ProvisionMainWindow) -> None:
-    window._tabs.setCurrentIndex(2)
-    window.state.pkg_atoms = ["board-image/test"]
-    window._set_step(ProvisionStateMachine.STEP_DOWNLOAD)
-    window._download_process = QProcess(window)
-
-    window._on_download_process_error(QProcess.ProcessError.FailedToStart)
-
-    assert window._download_process is None
-    assert not window._is_busy()
-    assert window._machine.download_recoverable
-    assert window._download_recovery_row.isVisibleTo(window)
 
 
 def test_download_log_replaces_progress_line(window: ProvisionMainWindow) -> None:
@@ -218,19 +205,12 @@ def test_successful_download_prepares_provision_and_advances_to_review(
         "prepare_provision",
         lambda _config, _mr, _atoms: prepared,
     )
-    monkeypatch.setattr(
-        window.provision_controller,
-        "start_download",
-        lambda: QTimer.singleShot(
-            0,
-            lambda: window.provision_controller.download_finished.emit(
-                True, "Download complete."
-            ),
-        ),
-    )
+    monkeypatch.setattr(window.provision_controller, "start_download", lambda: True)
 
     window._set_step(ProvisionStateMachine.STEP_PACKAGES)
     window._go_next()
+    window._on_download_finished_controller(True, "Download complete.")
+    window.provision_controller._on_preparation_finished(prepared)
 
     qtbot.waitUntil(
         lambda: window._machine.current_step == ProvisionStateMachine.STEP_REVIEW,
@@ -665,6 +645,22 @@ def test_flash_worker_revalidates_dd_target_before_spawn(monkeypatch, tmp_path) 
     assert not spawned
 
 
+def test_flash_worker_preflights_reviewed_targets(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "target.img"
+    target.touch()
+    worker = FlashWorker(
+        None,
+        None,
+        {"disk": os.fspath(target)},
+        {"disk": "reviewed-device"},
+        set(),
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(os_storage, "device_fingerprint", lambda _path: "replacement")
+
+    with pytest.raises(RuntimeError, match="storage target.*changed after review"):
+        worker._validate_reviewed_targets()
+
+
 def test_flash_worker_rejects_multiple_dd_outputs(monkeypatch, tmp_path) -> None:
     target = tmp_path / "target.img"
     other = tmp_path / "other.img"
@@ -746,12 +742,16 @@ def test_storage_refresh_discovers_new_disk_and_preserves_selection(
 
     window._set_step(ProvisionStateMachine.STEP_STORAGE)
     window._populate_storage()
+    qtbot.waitUntil(lambda: window._worker is None, timeout=1000)
     target = window._storage_inputs["disk"]
     target.setCurrentIndex(0)
 
     window._refresh_storage_btn.click()
 
-    qtbot.waitUntil(lambda: window._worker is None, timeout=1000)
+    qtbot.waitUntil(
+        lambda: window._storage_inputs["disk"].count() == 2,
+        timeout=1000,
+    )
     target = window._storage_inputs["disk"]
     assert target.count() == 2
     assert target.findData("/dev/disk-new") >= 0

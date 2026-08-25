@@ -31,8 +31,8 @@ from ruyi metadata and its provision strategy plugins.
 - Streaming Rich output with cancellation, progress, and plugin prompt handling.
 - Automatic `fastboot devices` checks for fastboot-based strategies.
 - Disk discovery with mounted-device warnings and explicit confirmation.
-- Chinese localization for the GUI and ruyi output when routed through
-  `zh_CN.UTF-8`.
+- Chinese localization for the GUI and ruyi output when a normalized `zh_CN`
+  locale is available.
 
 ## Requirements
 
@@ -102,9 +102,9 @@ a later launch while the same conditions hold.
 ## Localization
 
 The GUI selects its locale at startup and currently routes Chinese translations
-only for `zh_CN.UTF-8`. Restart the GUI after changing the system locale. Other
-locales remain in English unless both Oh My Ruyi and `ruyi` provide matching
-translation resources.
+for normalized `zh_CN` locales, including `zh_CN.UTF-8`. Restart the GUI after
+changing the system locale. Other locales remain in English unless both Oh My
+Ruyi and `ruyi` provide matching translation resources.
 
 The selected locale is also propagated to Qt standard controls, imported ruyi
 APIs, and child processes. Repository IDs, URLs, paths, package names, and
@@ -123,7 +123,9 @@ available entity types and provides an `Update metadata` action.
 
 The Version Management tab separates available releases from versions already
 downloaded on the computer. A custom release URL can be added for the current
-session when its filename matches `ruyi-<semver version>.<arch>`.
+session when its filename matches `ruyi-<semver version>.<arch>`. Custom URLs
+must use HTTPS and are not currently verified with a signature or checksum, so
+use only a trusted source.
 
 Downloads open a URL-selection dialog and show byte progress after confirmation.
 Failed downloads retain their output so another URL can be selected and retried.
@@ -131,7 +133,7 @@ Failed downloads retain their output so another URL can be selected and retried.
 
 Activation may require a sudo password. If the managed activation path already
 contains an unmanaged file or symlink, the GUI asks for confirmation before
-preserving it as a numbered `.bak` backup.
+preserving it as `ruyi.bak`, then `ruyi.bak.1`, `ruyi.bak.2`, and so on.
 
 Downloaded versions can be activated, deleted, or deactivated. An active binary
 must be deactivated before it can be deleted. The local panel also reports when
@@ -163,9 +165,11 @@ For dd-based images, the Storage step lists whole-disk targets and marks mounted
 targets. A mounted disk or partition requires an explicit confirmation before
 the flow can continue.
 
-The selected target is checked again immediately before flashing. If the target
-has changed, disappeared, or become mounted, flashing stops and the target must
-be reviewed again.
+The selected target is checked again at the flash boundary and immediately
+before every actual `dd` invocation. If the target has changed, disappeared, or
+become mounted, flashing stops and the target must be reviewed again. Metadata
+repositories and strategy plugins determine the commands, so review the
+commands shown on the Review page and use trusted metadata.
 
 ## Flashing
 
@@ -183,8 +187,11 @@ On flash failure, the Flash page provides `Retry flash`, `Review settings`, and
 
 Contributor setup, architecture, local ruyi and metadata development, locale
 extension, testing, CI, and packaging are documented in the
-[Development Guide](docs/development-guide.md). Coding agents should read the
-repository's [agent development context](AGENTS.md) before making changes.
+[Development Guide](docs/development-guide.md) and its topic guides for
+[architecture](docs/architecture.md), [operations and safety](docs/operations-and-safety.md),
+[development workflows](docs/development-workflows.md), and [testing and packaging](docs/testing-and-packaging.md).
+Coding agents should read the repository's [agent development context](AGENTS.md)
+before making changes.
 
 ## Status
 

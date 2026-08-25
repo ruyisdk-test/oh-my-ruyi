@@ -5,11 +5,7 @@ module small.
 """
 
 from __future__ import annotations
-
-from __future__ import annotations
 import os
-import platform
-import signal
 from pathlib import Path
 from PySide6.QtCore import (
     QDir,
@@ -48,7 +44,6 @@ from ..widgets.rich_output import (
 )
 from ...workers import (
     FlashWorker,
-    RepoInitWorker,
     StorageDiscoveryWorker,
 )
 from ._common import (
@@ -86,7 +81,11 @@ class ProvisionWizardMixin:
         self._refresh_buttons()
 
     def _on_managed_repo_updated(self, repo_id: str) -> None:
-        if repo_id != repo_manager.DEFAULT_REPO_ID or self._worker is not None:
+        if (
+            repo_id != repo_manager.DEFAULT_REPO_ID
+            or self._worker is not None
+            or self.repo_controller.is_busy
+        ):
             return
         first_use_update = (
             self._first_use_active and self._first_use_operation == "repository"
@@ -402,14 +401,11 @@ class ProvisionWizardMixin:
         return view
 
     def _start_repo_init(self) -> None:
-        if self._repo_manager_tab.is_busy or self._worker is not None:
+        if self._repo_manager_tab.is_busy or self.repo_controller.is_busy:
             return
         self._logger.set_terminal_target("welcome")
         self._next_btn.setEnabled(False)
-        self._worker = RepoInitWorker(self.state.config)
-        self._worker.finished.connect(self._on_repo_ready)
-        self._worker.failed.connect(self._on_worker_failed)
-        self._runner.run_worker(self._worker)
+        self.repo_controller.start_repo_init(self.state.config)
         self._refresh_buttons()
 
     def _start_repo_sync(self) -> None:
@@ -422,8 +418,6 @@ class ProvisionWizardMixin:
         self._device_details.clear()
         self._device_details.show()
 
-        self.repo_controller.sync_finished.connect(self._on_repo_synced)
-        self.repo_controller.sync_failed.connect(self._on_worker_failed)
         self.repo_controller.start_repo_sync(self.state.config, self.state.mr)
         self._refresh_buttons()
 
@@ -439,10 +433,12 @@ class ProvisionWizardMixin:
         self._refresh_buttons()
 
     def _on_download_output_data(self, data: bytes) -> None:
-        if strip_terminal_controls(data).strip():
+        self._download_log.feed_bytes(data)
+        if data:
             self._download_status.setText(_("Downloading and installing packages..."))
 
     def _on_download_finished_controller(self, success: bool, message: str) -> None:
+        self._download_log.feed_bytes(b"", final=True)
         self._download_status.setText(message)
         if not success:
             self._machine.download_ok = False
@@ -451,38 +447,20 @@ class ProvisionWizardMixin:
             self._refresh_buttons()
             return
 
-        try:
-            assert self.state.mr is not None
-            self.state.prepared = ruyi_adapter.prepare_provision(
-                self.state.config,
-                self.state.mr,
-                self.state.pkg_atoms,
-            )
-        except Exception as exc:  # noqa: BLE001 - surface preparation errors inline
-            self._download_log.append_plain_status(
-                _("Preparing flash failed: {error}", error=exc)
-            )
-            self._download_status.setText(_("Preparing flash failed. See output."))
-            self._download_status.setToolTip("")
-            self._machine.download_ok = False
-            self._machine.download_recoverable = True
-            self._set_status_kind(self._download_status, "error")
-        else:
-            self._download_status.setText(_("Download complete."))
-            self._download_status.setToolTip("")
-            self._machine.download_ok = True
-            self._machine.download_recoverable = False
-            self._set_status_kind(self._download_status, "success")
+        self._download_status.setText(_("Preparing flash plan..."))
+        self._download_status.setToolTip("")
+        self._set_status_kind(self._download_status, None)
         self._refresh_buttons()
-        if self._machine.download_ok:
-            self._advance_after_download()
 
     def _start_flash(self) -> None:
         assert self.state.prepared is not None
         storage_error = self._flash_storage_error()
         if storage_error is not None:
-            self._populate_storage()
-            self._storage_error.setText(storage_error)
+            self._populate_storage(
+                disks=[],
+                selected_paths=self.state.host_blkdev_map,
+                error=storage_error,
+            )
             self._set_step(self._machine.STEP_STORAGE)
             return
         self._machine.flash_recoverable = False
@@ -679,113 +657,17 @@ class ProvisionWizardMixin:
         self._populate_devices()
         self._set_step(self._machine.STEP_DEVICE)
 
-    def _terminate_download_process(self) -> None:
-        proc = self._download_process
-        if proc is None:
-            return
-        pid = proc.processId()
-        if pid > 0 and platform.system() != "Windows":
-            try:
-                os.killpg(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                os.kill(pid, signal.SIGTERM)
-        proc.terminate()
-        if not proc.waitForFinished(3000):
-            if pid > 0 and platform.system() != "Windows":
-                try:
-                    os.killpg(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                except PermissionError:
-                    os.kill(pid, signal.SIGKILL)
-            proc.kill()
-
     def _on_repo_ready(self, mr) -> None:
         self.state.mr = mr
         self._welcome_status.setText(_("RuyiSDK metadata repository is ready."))
         self._set_status_kind(self._welcome_status, "success")
-        self._cleanup_thread()
         self._populate_devices()
         self._set_step(self._machine.STEP_DEVICE)
 
     def _on_repo_synced(self, mr) -> None:
         self.state.mr = mr
-        self._cleanup_thread()
         self._populate_devices()
         self._set_step(self._machine.STEP_DEVICE)
-
-    def _on_download_output(self) -> None:
-        if self._download_process is None:
-            return
-        self._download_log.feed_bytes(
-            bytes(self._download_process.readAllStandardOutput())
-        )
-
-    def _on_download_process_error(self, error) -> None:
-        self._download_status.setText(
-            _("Download process error: {name}.", name=error.name)
-        )
-        self._machine.download_ok = False
-        self._machine.download_recoverable = True
-        if (
-            error == QProcess.ProcessError.FailedToStart
-            and self._download_process is not None
-        ):
-            self._download_process.deleteLater()
-            self._download_process = None
-        self._refresh_step_items()
-        self._refresh_buttons()
-
-    def _on_download_process_finished(self, ret: int, _status) -> None:
-        if self._download_process is not None:
-            self._download_log.feed_bytes(
-                bytes(self._download_process.readAllStandardOutput()),
-                final=True,
-            )
-            self._download_process.deleteLater()
-            self._download_process = None
-        if self._download_cancelled:
-            self._download_status.setText(_("Download cancelled."))
-            self._download_status.setToolTip("")
-            self._machine.download_ok = False
-            self._machine.download_recoverable = True
-            self._refresh_buttons()
-            return
-        self._on_download_finished(ret)
-
-    def _on_download_finished(self, ret: int) -> None:
-        if ret != 0:
-            self._download_status.setText(_("Download failed. See output."))
-            self._download_status.setToolTip(_("Exit code: {code}", code=ret))
-            self._machine.download_ok = False
-            self._machine.download_recoverable = True
-            self._refresh_buttons()
-            return
-        try:
-            assert self.state.mr is not None
-            self.state.prepared = ruyi_adapter.prepare_provision(
-                self.state.config,
-                self.state.mr,
-                self.state.pkg_atoms,
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._download_log.append_plain_status(
-                _("Preparing flash failed: {error}", error=exc)
-            )
-            self._download_status.setText(_("Preparing flash failed. See output."))
-            self._download_status.setToolTip("")
-            self._machine.download_ok = False
-            self._machine.download_recoverable = True
-        else:
-            self._download_status.setText(_("Download complete."))
-            self._download_status.setToolTip("")
-            self._machine.download_ok = True
-            self._machine.download_recoverable = False
-        self._refresh_buttons()
-        if self._machine.download_ok:
-            self._advance_after_download()
 
     def _on_flash_finished(self, ret: int) -> None:
         self._flash_log.feed_bytes(b"", final=True)
@@ -1198,6 +1080,7 @@ class ProvisionWizardMixin:
         self,
         disks: list[os_storage.BlockDeviceChoice] | None = None,
         selected_paths: dict[str, str] | None = None,
+        error: str | None = None,
     ) -> None:
         assert self.state.prepared is not None
         if selected_paths is None:
@@ -1210,8 +1093,8 @@ class ProvisionWizardMixin:
         self._storage_inputs.clear()
         self._storage_mount_warnings.clear()
         self._storage_mount_confirmations.clear()
-        self._storage_error.setText("")
-        discover_async = disks is None and os_storage.validation_is_slow()
+        self._storage_error.setText(error or "")
+        discover_async = disks is None
         if disks is None:
             disks = [] if discover_async else os_storage.list_disks()
         for part in self.state.prepared.requested_host_blkdevs:

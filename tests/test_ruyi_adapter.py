@@ -75,3 +75,33 @@ def test_provision_repo_requires_active_ruyisdk_repo() -> None:
 
     with pytest.raises(RuntimeError, match="active metadata repository 'ruyisdk'"):
         ruyi_adapter.use_provision_repo(config)
+
+
+def test_prepare_provision_uses_consumable_strategy_fields(monkeypatch) -> None:
+    strategy = SimpleNamespace(
+        priority=10,
+        need_cmd=["dd"],
+        need_host_blkdevs=lambda _parts: ["disk"],
+    )
+    monkeypatch.setattr(ruyi_adapter, "ProvisionStrategyProvider", lambda _mr: object())
+    monkeypatch.setattr(
+        ruyi_adapter,
+        "get_pkg_provision_strategy",
+        lambda _provider, _mr, _pkg: strategy,
+    )
+    monkeypatch.setattr(
+        ruyi_adapter,
+        "make_pkg_part_map",
+        lambda _config, _mr, _pkg: {"disk": "/tmp/image.img"},
+    )
+
+    prepared = ruyi_adapter.prepare_provision(
+        SimpleNamespace(include_prereleases=False),
+        object(),
+        ["board-image/test"],
+    )
+
+    assert prepared.strategies == [("board-image/test", strategy)]
+    assert prepared.pkg_part_maps == {"board-image/test": {"disk": "/tmp/image.img"}}
+    assert prepared.requested_host_blkdevs == ["disk"]
+    assert prepared.needed_cmds == {"dd"}

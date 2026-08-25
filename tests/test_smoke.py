@@ -28,6 +28,30 @@ def test_package_imports_cleanly() -> None:
     )
 
 
+def test_worker_task_runner_uses_a_background_qthread(qtbot) -> None:
+    from PySide6.QtCore import QThread, Slot
+    from PySide6.QtWidgets import QApplication
+
+    from oh_my_ruyi.workers.worker_manager import WorkerTaskRunner
+    from oh_my_ruyi.workers.workers import _BaseWorker
+
+    app_thread = QApplication.instance().thread()
+    observed: list[bool] = []
+
+    class ProbeWorker(_BaseWorker):
+        @Slot()
+        def run(self) -> None:
+            observed.append(QThread.currentThread() is app_thread)
+            self.finished.emit(None)
+
+    runner = WorkerTaskRunner()
+    runner.run_worker(ProbeWorker())
+
+    qtbot.waitUntil(lambda: bool(observed), timeout=1000)
+    qtbot.waitUntil(lambda: not runner._active_threads, timeout=1000)
+    assert observed == [False]
+
+
 def test_qt_logger_emits_signal(qtbot) -> None:
     """A QtRuyiLogger should re-emit every log call via the LogEmitter."""
     from oh_my_ruyi.ui.widgets.qt_logger import LogEmitter, QtRuyiLogger

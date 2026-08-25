@@ -60,6 +60,7 @@ class FirstUseMixin:
         if not self._first_use_active:
             return
         self._first_use_active = False
+        self._first_use_cancelled = True
         self._first_use_action = ""
         operation = self._first_use_operation
         if operation == "download":
@@ -70,8 +71,10 @@ class FirstUseMixin:
                 self._pm_worker.request_cancel()
         elif operation == "repository":
             self._repo_manager_tab.cancel_current_update()
-        if self._first_use_activated:
-            QTimer.singleShot(0, self._maybe_start_pm_telemetry)
+        elif operation == "activate" and self._pm_worker is not None:
+            request_cancel = getattr(self._pm_worker, "request_cancel", None)
+            if callable(request_cancel):
+                request_cancel()
 
     def _run_first_use_action(self) -> None:
         if not self._first_use_active:

@@ -17,7 +17,7 @@ from typing import Any, Iterable, List
 
 from ..core.models import BlockDeviceChoice
 from ..core.interfaces import IStorageScanner
-from ..i18n import _
+from ..i18n import _, locale_environment
 
 DEFAULT_DEVICE_ROOT = "/dev"
 
@@ -299,6 +299,7 @@ def _darwin_io_registry_id(disk: str) -> int | None:
             check=False,
             capture_output=True,
             timeout=10,
+            env={**os.environ, **locale_environment()},
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None
@@ -417,6 +418,7 @@ def _darwin_diskutil_plist(*args: str) -> dict[str, Any] | None:
             check=False,
             capture_output=True,
             timeout=10,
+            env={**os.environ, **locale_environment()},
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return None

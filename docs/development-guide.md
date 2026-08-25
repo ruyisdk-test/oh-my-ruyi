@@ -1,222 +1,143 @@
 # Development Guide
 
-This guide covers local development, architecture, testing, packaging, and
-extension points for Oh My Ruyi. User-facing setup and operation remain in the
-[project README](../README.md).
+This is the entry point for contributors and coding agents working on Oh My
+Ruyi. It explains where a change belongs, which boundaries it must preserve,
+how to run the application, and how to verify a change. User-visible behavior
+belongs in the [project README](../README.md); compact, durable agent rules
+belong in [AGENTS.md](../AGENTS.md).
 
-## Documentation for Humans and AI Agents
+The guide is split by the questions a contributor normally asks. Read the
+architecture document before changing ownership or data flow, the safety
+document before touching storage/version/repository/destructive operations, and
+the testing document before changing CI or packaging.
 
-This is the human-oriented development reference. It explains the project
-structure and how to extend and verify the application.
+## Topic Map
 
-The root-level [`AGENTS.md`](../AGENTS.md) is the compact pre-change context
-for coding agents. It records module ownership, architecture contracts,
-destructive-operation safeguards, localization rules, and required checks.
-Keep explanatory workflows here and durable, actionable constraints in
-`AGENTS.md`; avoid maintaining two independent descriptions of one detail.
+| Topic | Read this when... |
+| --- | --- |
+| [Architecture](architecture.md) | You need module ownership, object relationships, state flow, signals, or thread boundaries. |
+| [Operations and Safety](operations-and-safety.md) | You touch repositories, downloads, activation, first-use, storage, flashing, sudo, or trusted inputs. |
+| [Development Workflows](development-workflows.md) | You add a preset, locale, worker, child process, adapter behavior, metadata, or Rich output. |
+| [Testing and Packaging](testing-and-packaging.md) | You add tests, change fixtures, run CI, build wheels, or build release binaries. |
+
+## Project Snapshot
+
+Oh My Ruyi is a PySide6 frontend for the `ruyi` package manager. It imports
+ruyi's Python APIs for metadata, package installation, repository configuration,
+and device provisioning. It does not own board-specific metadata, package
+resolution, or flashing strategy semantics.
+
+The main runtime path is:
+
+```text
+oh_my_ruyi.__main__
+  -> app.bootstrap
+  -> locale + GlobalConfig + QtRuyiLogger
+  -> ProvisionMainWindow
+       -> controllers
+       -> views and mixins
+       -> workers / QProcess children
+       -> infra facades
+       -> ruyi APIs and external commands
+```
+
+The application has four top-level tabs:
+
+1. Version Management
+2. Repo Management
+3. Device Provision
+4. About
+
+The Device Provision tab contains the eleven-step workflow documented in
+[Architecture](architecture.md). The Version and first-use flows reuse the
+same workers and dialogs; they do not maintain a second implementation of
+download or activation.
 
 ## Prerequisites
 
-- Python 3.11 or 3.12.
-- `uv` for dependency management, locked environments, and package builds.
+- Python 3.11 or newer. CI currently covers Python 3.11 and 3.12.
+- `uv` for environments, locked dependencies, and builds.
 - A graphical Qt session for interactive use.
-- The Qt runtime libraries required by PySide6 on the host platform.
+- The host Qt runtime libraries required by PySide6.
 
-On Debian and Ubuntu, CI installs the Qt runtime libraries listed in
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The separate Debian
-compatibility workflow tests Debian 12 and 13 with the system Python and the
-xcb platform plugin.
-
-## Environment Setup
-
-Create the locked development environment:
+Set up the locked development environment:
 
 ```bash
 uv sync --locked --group dev
 ```
 
-Run the application from a graphical session:
+Run the GUI from a graphical session:
 
 ```bash
 uv run --locked oh-my-ruyi
-```
-
-The equivalent module entry point is:
-
-```bash
 uv run --locked python -m oh_my_ruyi
 ```
 
-The `ruyi` dependency normally comes from the configured Python package index.
-A sibling source checkout is not required. To test an intentional local ruyi
-change without modifying `pyproject.toml` or `uv.lock`, run:
+The GUI needs `DISPLAY` or `WAYLAND_DISPLAY`. Headless tests use:
+
+```bash
+QT_QPA_PLATFORM=offscreen uv run --locked python -m pytest -q
+```
+
+The normal `ruyi` dependency comes from the configured package index. A local
+ruyi checkout is injected only for intentional ruyi development:
 
 ```bash
 uv run --with-editable /path/to/ruyi oh-my-ruyi
 ```
 
-## Architecture
+Do not edit `pyproject.toml` or `uv.lock` for a temporary editable checkout.
 
-Oh My Ruyi is a programmatic PySide6 application. It imports ruyi's Python
-APIs for metadata, configuration, package installation, and provisioning rather
-than reproducing those domain rules in the GUI.
+## Ownership Quick Reference
 
-The main boundaries are:
+| Change | Owner | Focused tests |
+| --- | --- | --- |
+| Startup/config/locale | `app/bootstrap.py`, `i18n.py` | `test_i18n.py`, `test_smoke.py` |
+| Wizard state/FSM | `core/state.py`, `core/state_machine.py`, `core/models.py` | `test_provision_wizard.py` |
+| Provision download/preparation | `controllers/provision_controller.py` | `test_provision_wizard.py`, `test_ruyi_adapter.py` |
+| Repository init/sync | `controllers/repo_controller.py` | `test_main_window.py`, `test_provision_wizard.py` |
+| Metadata/config facade | `infra/ruyi_adapter.py`, `infra/repo_manager.py` | `test_ruyi_adapter.py`, `test_repo_manager.py` |
+| Version lifecycle | `infra/version_manager.py`, `_version_management_mixin.py` | `test_version_manager.py`, `test_version_management_ui.py` |
+| Storage topology/fingerprint | `infra/os_storage.py`, `_provision_wizard_mixin.py` | `test_os_storage.py`, `test_provision_wizard.py` |
+| Provision pages and Qt transitions | `_provision_wizard_mixin.py`, `main_window.py` | `test_provision_wizard.py`, `test_main_window.py` |
+| First-use orchestration | `first_use.py`, `_first_use_mixin.py` | `test_first_use.py`, `test_first_use_flow.py` |
+| Rich/log output | `qt_logger.py`, `rich_output.py`, `qprocess_utils.py` | `test_smoke.py`, `test_repo_manager_tab.py` |
+| Worker/thread lifecycle | `workers.py`, `worker_manager.py` | `test_smoke.py`, focused owner tests |
+| Child commands/frozen dispatch | `processes/*.py`, `__main__.py` | `test_packaging.py`, release build |
 
-- `app/bootstrap.py` initializes locale routing, creates ruyi's global
-  configuration, and starts `QApplication` and the main window.
-- `app/services/` contains application-facing services used by controllers and
-  views.
-- `controllers/` coordinates repository and provisioning workflows.
-- `ui/views/main_window.py` owns the top-level tabs and provisioning flow.
-- `ui/views/repo_manager_tab.py` owns repository configuration and update
-  interactions; `ui/views/about_tab.py` reports runtime information.
-- `core/state.py`, `core/state_machine.py`, and `core/models.py` contain the
-  mutable provisioning state, transitions, and domain models.
-- `infra/ruyi_adapter.py` is the Qt-free boundary over imported ruyi
-  provisioning APIs.
-- `infra/version_manager.py` handles release discovery, standalone binary
-  downloads, activation, deactivation, deletion, PATH inspection, and
-  telemetry setup.
-- `infra/repo_manager.py` reads repository configuration for display and
-  applies mutations through ruyi's configuration editor.
-- `infra/os_storage.py` owns platform-specific disk discovery, mount checks,
-  and device fingerprints.
-- `workers/` wraps blocking operations in QObjects that run on QThreads;
-  `processes/` contains isolated child-process entry points.
-- `ui/widgets/qt_logger.py` and `ui/widgets/rich_output.py` preserve ruyi's
-  Rich output, links, progress updates, and operation-specific routing.
-- `i18n.py` coordinates application, Qt, imported ruyi, and subprocess locale
-  selection.
+For full responsibilities, call graphs, state transitions, and signal ownership,
+read [Architecture](architecture.md). For the safety rules attached to these
+owners, read [Operations and Safety](operations-and-safety.md).
 
-## Threading and Process Model
+## Required Contracts
 
-Do not run repository I/O, release downloads, disk discovery, package work, or
-flashing directly on the Qt UI thread.
+These are intentionally summarized here. The detailed rationale and operation
+sequences live in the linked topic documents and the concise rules in
+`AGENTS.md`.
 
-Most blocking Python operations use workers from `workers/workers.py`. A worker
-emits a result or failure signal and is moved to a fresh QThread by the worker
-manager. The owning controller or view performs cleanup and UI state changes on
-the Qt thread.
+- Keep ruyi metadata, package, and strategy semantics in ruyi or the existing
+  Qt-free adapter. Do not duplicate them in widgets.
+- Keep repository I/O, downloads, package preparation, disk discovery,
+  telemetry setup, and flashing off the Qt UI thread.
+- Keep widget mutation and UI state transitions on the Qt thread.
+- Preserve worker ownership, signal cleanup, cancellation, process-group
+  termination, and late-signal identity checks.
+- Keep `WizardState` and `ProvisionStateMachine` in the controller boundary;
+  backward navigation must invalidate dependent state.
+- Mutate repository TOML only through ruyi's `ConfigEditor`.
+- Keep the built-in `ruyisdk` repository first and non-removable.
+- Route Rich renderables, ANSI styles, links, progress, and carriage-return
+  updates through the existing output boundary.
+- Revalidate storage fingerprints and mount state at destructive boundaries.
+- Treat release URLs, repository remotes, local metadata, and strategy plugins
+  as trusted inputs. Custom release URLs use HTTPS but have no signature or
+  checksum verification.
 
-Operations needing independent cancellation or native terminal behavior use
-child processes, including package download and installation, repository
-updates and news, and version activation helpers.
+## Verification Entry Point
 
-QProcess environments must use `apply_qprocess_locale()`. Standard subprocess
-environments must include `locale_environment()` so GUI and ruyi output do not
-select different languages.
-
-## First-use Setup Flow
-
-The first-use setup is offered only when all of these conditions hold:
-
-1. Ruyi's telemetry `installation.json` is absent.
-2. No executable named `ruyi` outside the running Python environment resolves
-   on `PATH`.
-3. Oh My Ruyi's managed data directory is absent.
-
-The predicate in `ui/views/first_use.py` uses ruyi's XDG helper for the first
-and third paths. Linux defaults live under `~/.local/`; macOS defaults live
-under `~/Library/Application Support/`. The PATH check ignores the directory
-containing `sys.executable` so this application's bundled console script does
-not suppress setup, while still searching later PATH entries for an external
-installation. A failed or cancelled initial download must not leave an empty
-managed data directory that suppresses the next offer.
-
-`FirstUseDialog` renders steps and exposes user actions. The main-window flow
-reuses the normal version download, activation, and repository update paths:
-
-1. Fetch the release catalog and offer the newest compatible stable entry,
-   falling back to another compatible channel when stable is unavailable.
-2. Reuse `_VersionDownloadDialog` and the version workers for download and
-   activation, including URL selection, progress, retry, cancellation, and
-   unmanaged-path backup confirmation.
-3. Switch to Repository Management and use its default `ruyisdk` source update.
-4. After a successful update, switch to About without starting provisioning.
-
-The user may skip the download or exit setup. Exiting cancels active work
-through the existing cancellation paths and does not weaken process cleanup or
-privilege safeguards.
-
-## Provisioning Flow
-
-The GUI mirrors `ruyi device provision` while keeping each interaction in a Qt
-page:
-
-1. Initialize or sync the configured ruyi metadata repository.
-2. Select a device, variant, and image combo from ruyi metadata.
-3. Customize package versions when useful alternatives exist.
-4. Download and install package artifacts.
-5. Build a `PreparedProvision` from ruyi's strategy provider.
-6. Collect and validate required host block-device paths.
-7. Display the strategy's pretend output and required commands.
-8. Run the strategy through the flash worker, forwarding plugin prompts to Qt.
-9. Display the translated post-install message and final status.
-
-`WizardState` is invalidated when the user moves back to an earlier step. New
-state must not survive if its inputs have changed.
-
-## Repository Management
-
-TOML is parsed directly only for ordered display and validation. Mutations must
-go through ruyi's `ConfigEditor`; do not add a second TOML writer.
-
-The built-in `ruyisdk` entry remains first and cannot be removed. Additional
-repositories come from `core/repo_presets.py`, start disabled, and retain their
-preset IDs and names. Update and news output is rendered through the same Rich
-terminal view used elsewhere in the application.
-
-## Storage Safety
-
-The selected storage path is not trusted by name alone. Its fingerprint is
-recorded at review time and checked again before flashing and at each actual
-`dd` invocation. Mounted targets require explicit confirmation, and Linux
-checks follow holder relationships for device-mapper, LUKS, LVM, and RAID
-stacks. A UI confirmation is not a substitute for revalidation at the
-destructive command boundary.
-
-## Rich Output
-
-Imported ruyi APIs may write strings, Rich renderables, links, progress output,
-or carriage-return updates. Route output through `QtRuyiLogger` or a
-`RichTextView`; do not flatten it to plain text before rendering.
-
-Terminal output is tagged with an operation target such as `welcome`, `device`,
-`download`, `flash`, or `fastboot`. This prevents delayed worker output from
-appearing in a newer operation's view.
-
-## Localization
-
-The application currently routes Chinese translations for `zh_CN.UTF-8`.
-Locale resolution follows gettext precedence: `LANGUAGE`, `LC_ALL`,
-`LC_MESSAGES`, then `LANG`. A locale is activated only when Oh My Ruyi has an
-application catalog and ruyi supplies both required gettext domains.
-
-Application strings use the gettext-style `_()` helper from `i18n.py`. Static
-programmatic widget properties are translated by `translate_widget_tree()`;
-dynamic text must call `_()` when it is created. Do not translate repository
-IDs, URLs, paths, package atoms, package names, device names, or other external
-data. Keep placeholder names identical in source and translation, and update
-`tests/test_i18n.py` for routing or subprocess behavior changes.
-
-## Local Metadata Development
-
-Point ruyi at a metadata tree containing `device`, `device-variant`, and
-`image-combo` entities:
-
-```toml
-[repo]
-local = "/absolute/path/to/ruyinews"
-```
-
-Use an absolute path. The GUI reloads the same repository configuration and
-metadata objects used by the CLI, so validate metadata behavior with both the
-GUI and `ruyi device provision`.
-
-## Tests and Quality Checks
-
-Run the same core checks as CI:
+The complete command matrix, platform differences, mocks, wheel inspection,
+and frozen release validation are in [Testing and Packaging](testing-and-packaging.md).
+The short form is:
 
 ```bash
 uv lock --check
@@ -227,46 +148,5 @@ QT_QPA_PLATFORM=offscreen uv run --locked python -m pytest -q
 uv build
 ```
 
-For focused UI and locale runs:
-
-```bash
-QT_QPA_PLATFORM=offscreen uv run --locked python -m pytest -q tests/test_smoke.py
-QT_QPA_PLATFORM=offscreen uv run --locked python -m pytest -q tests/test_i18n.py
-```
-
-Use `pytest-qt` for widget interactions and asynchronous signals. Keep network,
-filesystem, privilege, and destructive-command boundaries mocked unless a test
-is explicitly an integration test.
-
-## CI, Packaging, and Project Layout
-
-CI tests Python 3.11 and 3.12 on Linux and macOS, checking the lockfile, Ruff,
-formatting, compilation, package construction, and the full offscreen suite.
-The wheel is built by Hatchling through `uv build`; inspect it after adding a
-non-Python resource rather than assuming the resource was included.
-
-The main package layout is:
-
-```text
-oh_my_ruyi/
-  app/            application bootstrap and services
-  controllers/    workflow coordination
-  core/           domain models, state, and presets
-  infra/          ruyi, repository, version, and storage boundaries
-  processes/      isolated child-process entry points
-  ui/             views, viewmodels, widgets, and styles
-  workers/        QThread workers and lifecycle management
-tests/            focused service, UI, and integration-boundary tests
-```
-
-## Change Checklist
-
-Before opening a pull request:
-
-1. Keep domain logic in ruyi or the existing service/facade boundary, not Qt
-   event handlers.
-2. Keep blocking work off the UI thread.
-3. Preserve cancellation, process cleanup, and storage revalidation paths.
-4. Add focused tests proportional to behavior and blast radius.
-5. Run the full CI command set above.
-6. Check `git diff` for generated files, local paths, and unrelated changes.
+Before a release, also run the PyInstaller command in the testing document and
+exercise its `-m oh_my_ruyi.processes.*` and `-m ruyi` dispatch paths.

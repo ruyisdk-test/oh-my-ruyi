@@ -5,6 +5,7 @@ from __future__ import annotations
 from .worker_manager import WorkerTaskRunner
 from .workers import (
     FlashWorker,
+    ProvisionPreparationWorker,
     RepoInitWorker,
     RepoSyncWorker,
     StorageDiscoveryWorker,
@@ -21,6 +22,7 @@ from .workers import (
 
 __all__ = [
     "FlashWorker",
+    "ProvisionPreparationWorker",
     "RepoInitWorker",
     "RepoSyncWorker",
     "StorageDiscoveryWorker",

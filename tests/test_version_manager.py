@@ -182,6 +182,7 @@ def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
         "https://downloads.example/ruyi-0.53-amd64",
         "https://downloads.example/ruyi-0.53.0-amd64",
         "file:///tmp/ruyi-0.53.0.amd64",
+        "http://downloads.example/ruyi-0.53.0.amd64",
     ]:
         with pytest.raises(version_manager.VersionManagerError):
             version_manager.release_from_url(invalid)

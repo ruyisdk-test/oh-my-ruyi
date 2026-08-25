@@ -27,7 +27,7 @@ class WizardState:
     config: GlobalConfig
     emitter: LogEmitter
 
-    # Populated by RepoInitWorker on the Welcome step.
+    # Populated by the repository controller on the Welcome step.
     mr: Optional[CompositeRepo] = None
 
     # Choices made on the selection steps.

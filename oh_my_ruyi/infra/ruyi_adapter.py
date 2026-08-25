@@ -13,6 +13,7 @@ order and resume after long-running operations.
 from __future__ import annotations
 
 import itertools
+import os
 import shutil
 import subprocess
 import threading
@@ -46,16 +47,15 @@ from ..core.models import (
     PackageVersionSelection,
 )
 from ..core.interfaces import IRuyiAdapter
-from ..i18n import _
+from ..i18n import _, locale_environment
 
 
 @dataclass(slots=True)
 class PreparedProvision:
     """Pre-calculated output of :func:`prepare_provision`."""
 
-    strategy: PackageProvisionStrategy
-    provider: ProvisionStrategyProvider
-    pkg_part_map: dict[str, PartitionMapDecl]
+    strategies: list[tuple[str, PackageProvisionStrategy]]
+    pkg_part_maps: dict[str, PartitionMapDecl]
     all_parts: list[PartitionKind]
     requested_host_blkdevs: list[PartitionKind]
     needed_cmds: set[str] = field(default_factory=set)
@@ -434,6 +434,7 @@ def check_fastboot_devices() -> tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=10,
+            env={**os.environ, **locale_environment()},
         )
     except FileNotFoundError:
         return False, "fastboot command was not found."

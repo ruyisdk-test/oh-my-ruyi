@@ -33,7 +33,7 @@ from ruyi.config import GlobalConfig
 from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 
-from ..i18n import _, format_exception_message
+from ..i18n import _, format_exception_message, locale_environment
 from ..infra import (
     os_storage,
     ruyi_adapter,
@@ -91,6 +91,31 @@ class RepoSyncWorker(_BaseWorker):
             mr = ruyi_adapter.sync_repo(self._config, self._mr)
             self.finished.emit(mr)
         except Exception as exc:  # noqa: BLE001
+            self._fail(exc)
+
+
+class ProvisionPreparationWorker(_BaseWorker):
+    """Build the ruyi flash plan without blocking the Qt event loop."""
+
+    def __init__(
+        self, config: GlobalConfig, mr: CompositeRepo, pkg_atoms: list[str]
+    ) -> None:
+        super().__init__()
+        self._config = config
+        self._mr = mr
+        self._pkg_atoms = pkg_atoms
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.finished.emit(
+                ruyi_adapter.prepare_provision(
+                    self._config,
+                    self._mr,
+                    self._pkg_atoms,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - surface to UI
             self._fail(exc)
 
 
@@ -183,6 +208,7 @@ class VersionActivationWorker(_BaseWorker):
     """Activate a downloaded binary, requesting sudo credentials when needed."""
 
     password_requested = Signal(str, object)
+    cancelled = Signal()
 
     def __init__(
         self,
@@ -197,10 +223,23 @@ class VersionActivationWorker(_BaseWorker):
         self._directory = directory
         self._link = link
         self._backup_unmanaged = backup_unmanaged
+        self._cancel_requested = threading.Event()
+        self._process_lock = threading.Lock()
+        self._process: subprocess.Popen[str] | None = None
+
+    def request_cancel(self) -> None:
+        self._cancel_requested.set()
+        with self._process_lock:
+            process = self._process
+        if process is not None and process.poll() is None:
+            self._signal_process(process)
 
     @Slot()
     def run(self) -> None:
         try:
+            if self._cancel_requested.is_set():
+                self.cancelled.emit()
+                return
             if os.access(self._link.parent, os.W_OK):
                 result = version_manager.activate_version(
                     self._binary,
@@ -210,9 +249,15 @@ class VersionActivationWorker(_BaseWorker):
                 )
             else:
                 result = self._activate_with_sudo()
+            # A local activation is an atomic filesystem operation. If a
+            # cancellation arrives after it returns, report the completed
+            # result instead of claiming that the mutation was rolled back.
             self.finished.emit(result)
         except Exception as exc:  # noqa: BLE001
-            self._fail(exc)
+            if self._cancel_requested.is_set():
+                self.cancelled.emit()
+            else:
+                self._fail(exc)
 
     def _activate_with_sudo(self) -> version_manager.ActivationResult:
         if platform.system() == "Windows":
@@ -231,6 +276,8 @@ class VersionActivationWorker(_BaseWorker):
         password = response["password"]
         if password is None:
             raise RuntimeError("activation was cancelled")
+        if self._cancel_requested.is_set():
+            raise RuntimeError("activation was cancelled")
 
         command = [
             "sudo",
@@ -247,13 +294,7 @@ class VersionActivationWorker(_BaseWorker):
         ]
         if self._backup_unmanaged:
             command.append("--backup-unmanaged")
-        completed = subprocess.run(
-            command,
-            input=password + "\n",
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        completed = self._run_privileged_command(command, password)
         if completed.returncode != 0:
             message = completed.stderr.strip() or completed.stdout.strip()
             raise RuntimeError(
@@ -268,6 +309,57 @@ class VersionActivationWorker(_BaseWorker):
             version_manager.read_activation_state(self._link, self._directory),
             Path(backup) if isinstance(backup, str) else None,
         )
+
+    def _run_privileged_command(
+        self, command: list[str], password: str
+    ) -> subprocess.CompletedProcess[str]:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, **locale_environment()},
+            start_new_session=platform.system() != "Windows",
+        )
+        with self._process_lock:
+            self._process = process
+        try:
+            assert process.stdin is not None
+            process.stdin.write(password + "\n")
+            process.stdin.close()
+            while process.poll() is None:
+                if self._cancel_requested.is_set():
+                    self._terminate_process(process)
+                    break
+                time.sleep(0.05)
+            stdout, stderr = process.communicate()
+        finally:
+            with self._process_lock:
+                if self._process is process:
+                    self._process = None
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _signal_process(process: subprocess.Popen[str]) -> None:
+        try:
+            if platform.system() == "Windows":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            if process.poll() is None:
+                process.terminate()
+
+    @classmethod
+    def _terminate_process(cls, process: subprocess.Popen[str]) -> None:
+        try:
+            cls._signal_process(process)
+            process.wait(timeout=1)
+        except (OSError, ProcessLookupError, subprocess.TimeoutExpired):
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
 
 class VersionDeleteWorker(_BaseWorker):
@@ -346,6 +438,7 @@ class VersionDeactivationWorker(_BaseWorker):
             capture_output=True,
             text=True,
             check=False,
+            env={**os.environ, **locale_environment()},
         )
         if completed.returncode != 0:
             message = completed.stderr.strip() or completed.stdout.strip()
@@ -414,6 +507,7 @@ class FlashWorker(_BaseWorker):
     def run(self) -> None:
         _set_terminal_target(self._config, "flash")
         try:
+            self._validate_reviewed_targets()
             ret = self._run_with_gui_prompts()
             if self._cancel_requested.is_set():
                 self.cancelled.emit()
@@ -494,6 +588,7 @@ class FlashWorker(_BaseWorker):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=0,
+            env={**os.environ, **locale_environment()},
             start_new_session=platform.system() != "Windows",
         )
         with self._process_lock:
@@ -581,6 +676,33 @@ class FlashWorker(_BaseWorker):
             raise RuntimeError(
                 f"the dd target '{output_path}' became mounted after review; flashing was stopped"
             )
+
+    def _validate_reviewed_targets(self) -> None:
+        """Revalidate every reviewed target before any strategy runs."""
+        requested_parts = getattr(
+            self._prepared,
+            "requested_host_blkdevs",
+            self._host_blkdev_map,
+        )
+        for part in requested_parts:
+            path = self._host_blkdev_map.get(part)
+            if not path:
+                raise RuntimeError(
+                    f"the storage target for '{part}' was not reviewed; flashing was stopped"
+                )
+            expected = self._host_blkdev_fingerprints.get(part)
+            current = os_storage.device_fingerprint(path)
+            if expected is None or current is None or current != expected:
+                raise RuntimeError(
+                    f"the storage target '{path}' changed after review; flashing was stopped"
+                )
+            if (
+                os_storage.is_disk_or_child_mounted(path)
+                and part not in self._confirmed_mounted_parts
+            ):
+                raise RuntimeError(
+                    f"the storage target '{path}' became mounted after review; flashing was stopped"
+                )
 
     @staticmethod
     def _argv_with_gui_progress(argv: list[str]) -> list[str]:
