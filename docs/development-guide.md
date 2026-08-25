@@ -106,6 +106,9 @@ The main boundaries are:
   for compatibility.
 - `ui/repo_tables.py` owns repository table rendering; `RepoManagementTab`
   still owns selection, mutations, and update processes.
+- `ui/provision_pages.py` owns provisioning page construction and callback
+  wiring; `ProvisionMainWindow` keeps the returned widget references and owns
+  all state transitions.
 - `repo_manager_tab.py` owns repository configuration and update interactions.
 - `about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
   information.

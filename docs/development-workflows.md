@@ -40,6 +40,11 @@ connects intent signals, and decides what success or failure means. Dialogs
 never call blocking service functions such as
 `version_manager.download_release()`.
 
+The provisioning wizard follows the same boundary through
+`ui/provision_pages.py`: its factory receives callbacks, creates pages, and
+returns a typed widget bundle. Keep provisioning state, invalidation, and
+worker starts in `main_window.py`.
+
 Do not move a wizard page merely because it is long. If a page reads or writes
 many `ProvisionMainWindow` fields, first extract a pure formatter or a helper
 with an explicit input/result object. A broad mixin or a second controller can

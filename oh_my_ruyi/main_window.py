@@ -48,7 +48,6 @@ from PySide6.QtWidgets import (
     QStyle,
     QTabWidget,
     QTableWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -95,6 +94,7 @@ from .ui.version_tables import (
     populate_installed_versions_table,
     set_row_foreground,
 )
+from .ui.provision_pages import build_provision_pages
 from .ui.theme import stylesheet_for_colors, theme_colors
 
 
@@ -917,201 +917,62 @@ class ProvisionMainWindow(QMainWindow):
         return label
 
     def _build_pages(self) -> None:
-        self._welcome_status = QLabel("Preparing the RuyiSDK metadata repository...")
-        self._welcome_status.setWordWrap(True)
-        self._welcome_status.setProperty("statusKind", "warning")
-        self._add_page(
-            "RuyiSDK Device Provisioning",
-            [
-                QLabel(
-                    "This screen walks through the same flow as `ruyi device provision`. "
-                    "The left side shows the whole process; the right side keeps your "
-                    "choices visible while showing the current step."
-                ),
-                self._welcome_status,
-            ],
+        widgets = build_provision_pages(
+            add_page=self._add_page,
+            make_log_view=self._make_log_view,
+            style=self.style(),
+            storage_hint=host_storage.storage_platform_hint(),
+            refresh_buttons=self._refresh_buttons,
+            activate_current_step=self._activate_current_step,
+            start_repo_sync=self._start_repo_sync,
+            cancel_download=self._cancel_download,
+            resume_download=self._resume_download,
+            reselect_versions=self._reselect_versions,
+            restart_flow=self._restart_flow,
+            refresh_storage_disks=self._refresh_storage_disks,
+            check_fastboot_devices=self._check_fastboot_devices,
+            interrupt_flash=self._interrupt_flash,
+            retry_flash=self._retry_flash,
+            review_flash_settings=self._review_flash_settings,
         )
-
-        self._device_list = QListWidget()
-        self._device_list.setAccessibleName("Devices")
-        self._device_list.currentRowChanged.connect(self._refresh_buttons)
-        self._device_list.itemDoubleClicked.connect(self._activate_current_step)
-        self._device_status = QLabel("")
-        self._device_status.setWordWrap(True)
-        self._device_status.setProperty("statusKind", "warning")
-        self._device_details = self._make_log_view()
-        self._device_details.setMaximumHeight(180)
-        self._device_details.hide()
-        self._update_repo_btn = QPushButton("Update metadata")
-        self._update_repo_btn.clicked.connect(self._start_repo_sync)
-        self._add_page(
-            "Pick your device",
-            [
-                self._device_status,
-                self._update_repo_btn,
-                self._device_list,
-                self._device_details,
-            ],
-        )
-
-        self._variant_list = QListWidget()
-        self._variant_list.setAccessibleName("Device variants")
-        self._variant_list.currentRowChanged.connect(self._refresh_buttons)
-        self._variant_list.itemDoubleClicked.connect(self._activate_current_step)
-        self._add_page("Pick the device variant", [self._variant_list])
-
-        self._combo_list = QListWidget()
-        self._combo_list.setAccessibleName("System images")
-        self._combo_list.currentRowChanged.connect(self._refresh_buttons)
-        self._combo_list.itemDoubleClicked.connect(self._activate_current_step)
-        self._add_page("Pick the system image", [self._combo_list])
-
-        self._versions_box = QWidget()
-        self._versions_layout = QVBoxLayout(self._versions_box)
-        self._versions_layout.setContentsMargins(0, 0, 0, 0)
-        self._versions_status = QLabel("")
-        self._versions_status.setWordWrap(True)
-        self._add_page(
-            "Customize package versions",
-            [
-                QLabel(
-                    "By default, ruyi installs the latest version of each package. "
-                    "When other versions are available, choose them here."
-                ),
-                self._versions_status,
-                self._versions_box,
-            ],
-        )
-
-        self._packages_list = QListWidget()
-        self._packages_list.setAccessibleName("Packages to install")
-        self._packages_list.itemDoubleClicked.connect(self._activate_current_step)
-        self._add_page(
-            "Confirm packages",
-            [
-                QLabel("The following packages will be downloaded and installed:"),
-                self._packages_list,
-            ],
-        )
-
-        self._download_status = QLabel("Download has not started.")
-        self._download_log = self._make_log_view()
-        self._cancel_download_btn = QPushButton("Cancel download")
-        self._cancel_download_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
-        )
-        self._cancel_download_btn.clicked.connect(self._cancel_download)
-        self._resume_download_btn = QPushButton("Resume download")
-        self._resume_download_btn.clicked.connect(self._resume_download)
-        self._reselect_versions_btn = QPushButton("Reselect versions")
-        self._reselect_versions_btn.clicked.connect(self._reselect_versions)
-        self._restart_btn = QPushButton("Start over")
-        self._restart_btn.clicked.connect(self._restart_flow)
-        self._download_recovery_row = QWidget()
-        recovery_layout = QHBoxLayout(self._download_recovery_row)
-        recovery_layout.setContentsMargins(0, 0, 0, 0)
-        recovery_layout.addWidget(self._resume_download_btn)
-        recovery_layout.addWidget(self._reselect_versions_btn)
-        recovery_layout.addWidget(self._restart_btn)
-        self._add_page(
-            "Download and install packages",
-            [
-                self._download_status,
-                self._cancel_download_btn,
-                self._download_recovery_row,
-                self._download_log,
-            ],
-        )
-
-        self._storage_box = QWidget()
-        self._storage_layout = QVBoxLayout(self._storage_box)
-        self._storage_layout.setContentsMargins(0, 0, 0, 0)
-        self._storage_error = QLabel("")
-        self._storage_error.setWordWrap(True)
-        self._storage_error.setProperty("statusKind", "warning")
-        self._refresh_storage_btn = QPushButton("Refresh disks")
-        self._refresh_storage_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
-        self._refresh_storage_btn.setToolTip("Scan for newly connected storage devices")
-        self._refresh_storage_btn.clicked.connect(self._refresh_storage_disks)
-        self._add_page(
-            "Provide storage paths",
-            [
-                QLabel(host_storage.storage_platform_hint()),
-                self._refresh_storage_btn,
-                self._storage_box,
-                self._storage_error,
-            ],
-        )
-
-        self._review_steps = self._make_log_view()
-        self._review_steps.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self._review_steps.setReadOnly(True)
-        self._review_missing = QLabel("")
-        self._review_missing.setWordWrap(True)
-        self._review_missing.setProperty("statusKind", "error")
+        self._welcome_status = widgets.welcome_status
+        self._device_list = widgets.device_list
+        self._device_status = widgets.device_status
+        self._device_details = widgets.device_details
+        self._update_repo_btn = widgets.update_repo_btn
+        self._variant_list = widgets.variant_list
+        self._combo_list = widgets.combo_list
+        self._versions_box = widgets.versions_box
+        self._versions_layout = widgets.versions_layout
+        self._versions_status = widgets.versions_status
+        self._packages_list = widgets.packages_list
+        self._download_status = widgets.download_status
+        self._download_log = widgets.download_log
+        self._cancel_download_btn = widgets.cancel_download_btn
+        self._resume_download_btn = widgets.resume_download_btn
+        self._reselect_versions_btn = widgets.reselect_versions_btn
+        self._restart_btn = widgets.restart_btn
+        self._download_recovery_row = widgets.download_recovery_row
+        self._storage_box = widgets.storage_box
+        self._storage_layout = widgets.storage_layout
+        self._storage_error = widgets.storage_error
+        self._refresh_storage_btn = widgets.refresh_storage_btn
+        self._review_steps = widgets.review_steps
+        self._review_missing = widgets.review_missing
+        self._fastboot_status = widgets.fastboot_status
+        self._fastboot_log = widgets.fastboot_log
+        self._check_fastboot_btn = widgets.check_fastboot_btn
+        self._proceed_cb = widgets.proceed_cb
+        self._flash_status = widgets.flash_status
+        self._interrupt_flash_btn = widgets.interrupt_flash_btn
+        self._retry_flash_btn = widgets.retry_flash_btn
+        self._review_flash_btn = widgets.review_flash_btn
+        self._restart_flash_btn = widgets.restart_flash_btn
+        self._flash_recovery_row = widgets.flash_recovery_row
+        self._flash_log = widgets.flash_log
+        self._done_label = widgets.done_label
+        self._postinst_label = widgets.postinst_label
         self._fastboot_ok = False
-        self._fastboot_status = QLabel("")
-        self._fastboot_status.setWordWrap(True)
-        self._fastboot_log = self._make_log_view()
-        self._fastboot_log.setMaximumHeight(130)
-        self._fastboot_log.hide()
-        self._check_fastboot_btn = QPushButton("Check fastboot devices")
-        self._check_fastboot_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
-        )
-        self._check_fastboot_btn.clicked.connect(self._check_fastboot_devices)
-        self._proceed_cb = QCheckBox("Proceed with flashing.")
-        self._proceed_cb.toggled.connect(self._refresh_buttons)
-        self._add_page(
-            "Review flashing actions",
-            [
-                self._review_steps,
-                self._review_missing,
-                self._fastboot_status,
-                self._fastboot_log,
-                self._check_fastboot_btn,
-                self._proceed_cb,
-            ],
-        )
-
-        self._flash_status = QLabel("Flash has not started.")
-        self._interrupt_flash_btn = QPushButton("Interrupt flash")
-        self._interrupt_flash_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserStop)
-        )
-        self._interrupt_flash_btn.clicked.connect(self._interrupt_flash)
-        self._retry_flash_btn = QPushButton("Retry flash")
-        self._retry_flash_btn.clicked.connect(self._retry_flash)
-        self._review_flash_btn = QPushButton("Review settings")
-        self._review_flash_btn.clicked.connect(self._review_flash_settings)
-        self._restart_flash_btn = QPushButton("Start over")
-        self._restart_flash_btn.clicked.connect(self._restart_flow)
-        self._flash_recovery_row = QWidget()
-        flash_recovery_layout = QHBoxLayout(self._flash_recovery_row)
-        flash_recovery_layout.setContentsMargins(0, 0, 0, 0)
-        flash_recovery_layout.addWidget(self._retry_flash_btn)
-        flash_recovery_layout.addWidget(self._review_flash_btn)
-        flash_recovery_layout.addWidget(self._restart_flash_btn)
-        self._flash_log = self._make_log_view()
-        self._add_page(
-            "Flash device",
-            [
-                self._flash_status,
-                self._interrupt_flash_btn,
-                self._flash_recovery_row,
-                self._flash_log,
-            ],
-        )
-
-        self._done_label = QLabel("")
-        self._done_label.setWordWrap(True)
-        self._postinst_label = QLabel("")
-        self._postinst_label.setWordWrap(True)
-        self._postinst_label.setFrameShape(QFrame.Shape.Box)
-        self._postinst_label.setObjectName("postInstallMessage")
-        self._add_page("Done", [self._done_label, self._postinst_label])
 
     def _add_page(self, title: str, widgets: list[QWidget]) -> None:
         page = QWidget()

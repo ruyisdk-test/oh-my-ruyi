@@ -16,6 +16,7 @@ from .common import (
 from .first_use_dialog import FirstUseDialog, SETUP_STEPS
 from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .repo_tables import populate_repository_tables
+from .provision_pages import ProvisionPageWidgets, build_provision_pages
 from .version_dialogs import VersionDownloadDialog
 from .version_tables import (
     populate_available_versions_table,
@@ -36,6 +37,8 @@ __all__ = [
     "RepoSourceDialog",
     "RepoUpdateDialog",
     "populate_repository_tables",
+    "ProvisionPageWidgets",
+    "build_provision_pages",
     "populate_available_versions_table",
     "populate_installed_versions_table",
     "set_row_foreground",

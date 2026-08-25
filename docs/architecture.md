@@ -13,7 +13,7 @@ oh_my_ruyi.__main__
       -> GlobalConfig + QtRuyiLogger
       -> main_window.py
           -> first_use.py / repo_manager_tab.py / about_tab.py
-          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables}.py
+          -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables,provision_pages}.py
           -> worker_services.py / workers.py -> worker_runtime.py
           -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
           -> QProcess child modules in processes/
@@ -39,6 +39,7 @@ and the boundary checks required before invoking those APIs.
 | `ui/version_tables.py` | Reusable release/local-version table rendering and selection preservation | Catalog fetching, activation, or application state |
 | `ui/theme.py` | Palette-to-semantic-color mapping and stylesheet generation | Runtime state, workers, or data I/O |
 | `ui/repo_tables.py` | Repository preset/configuration table rendering and protected-entry hints | Repository mutations or update processes |
+| `ui/provision_pages.py` | Provisioning wizard page construction and callback wiring | Wizard state transitions, workers, repository or storage I/O |
 | `worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
 | `workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
 | `worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
@@ -116,12 +117,12 @@ transitions. Its methods are grouped by responsibility:
 
 The extraction rule is conservative: a class or function may move when it has a
 small signal/data contract and no hidden access to the window's mutable state.
-The version download, repository source/update, and first-use dialogs meet that
-rule. The service workers meet it because they only retain operation inputs and
-emit results; `workers.py` re-exports their original names for callers and
-tests. Wizard pages do not yet: they share dozens of fields and transition
-methods, so moving them wholesale would increase coupling rather than improve
-readability.
+The version download, repository source/update, first-use dialog, and
+provisioning page factory meet that rule. The service workers meet it because
+they only retain operation inputs and emit results; `workers.py` re-exports
+their original names for callers and tests. The page factory returns the
+widgets that the coordinator updates later; it does not move the wizard state
+machine out of `main_window.py`.
 
 ## Worker Lifecycle
 
