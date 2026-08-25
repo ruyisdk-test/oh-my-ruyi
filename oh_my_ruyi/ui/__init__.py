@@ -15,6 +15,12 @@ from .common import (
 )
 from .about_page import AboutWidgets, build_about_page
 from .first_use_dialog import FirstUseDialog, SETUP_STEPS
+from .provision_content import (
+    build_version_selection_rows,
+    clear_layout_widgets,
+    populate_choice_list,
+    populate_package_list,
+)
 from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .repo_page import (
     ConfiguredPanelWidgets,
@@ -40,6 +46,8 @@ __all__ = [
     "FASTBOOT_PROGRAM",
     "AboutWidgets",
     "build_about_page",
+    "build_version_selection_rows",
+    "clear_layout_widgets",
     "FirstUseDialog",
     "SETUP_STEPS",
     "STORAGE_FINGERPRINT_ROLE",
@@ -55,6 +63,8 @@ __all__ = [
     "PresetPanelWidgets",
     "build_configured_panel",
     "build_preset_panel",
+    "populate_choice_list",
+    "populate_package_list",
     "populate_repository_tables",
     "ProvisionPageWidgets",
     "build_provision_pages",

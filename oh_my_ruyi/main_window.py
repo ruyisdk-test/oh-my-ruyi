@@ -90,6 +90,12 @@ from .ui.version_tables import (
     set_row_foreground,
 )
 from .ui.provision_pages import build_provision_pages
+from .ui.provision_content import (
+    build_version_selection_rows,
+    clear_layout_widgets,
+    populate_choice_list,
+    populate_package_list,
+)
 from .ui.theme import stylesheet_for_colors, theme_colors
 
 
@@ -2763,16 +2769,11 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_devices(self) -> None:
         assert self.state.mr is not None
         devices = ruyi_facade.list_devices(self.state.mr)
-        self._device_choices = {d.id: d for d in devices}
-        self._device_list.clear()
+        self._device_choices = populate_choice_list(self._device_list, devices)
         self._device_status.setText("")
         if not self._device_details.toPlainText().strip():
             self._device_details.hide()
         self._update_repo_btn.setVisible(not devices)
-        for d in devices:
-            item = QListWidgetItem(d.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, d.id)
-            self._device_list.addItem(item)
         if not devices:
             entity_types = ruyi_facade.list_entity_types(self.state.mr)
             types_text = ", ".join(entity_types) if entity_types else _("(none)")
@@ -2838,12 +2839,7 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_variants(self) -> None:
         assert self.state.mr is not None and self.state.device is not None
         variants = ruyi_facade.list_variants(self.state.mr, self.state.device.entity)
-        self._variant_choices = {v.id: v for v in variants}
-        self._variant_list.clear()
-        for v in variants:
-            item = QListWidgetItem(v.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, v.id)
-            self._variant_list.addItem(item)
+        self._variant_choices = populate_choice_list(self._variant_list, variants)
 
     def _choose_variant(self) -> None:
         item = self._variant_list.currentItem()
@@ -2855,12 +2851,7 @@ class ProvisionMainWindow(QMainWindow):
     def _populate_combos(self) -> None:
         assert self.state.mr is not None and self.state.variant is not None
         combos = ruyi_facade.list_combos(self.state.mr, self.state.variant.entity)
-        self._combo_choices = {c.id: c for c in combos}
-        self._combo_list.clear()
-        for c in combos:
-            item = QListWidgetItem(c.display_name)
-            item.setData(Qt.ItemDataRole.UserRole, c.id)
-            self._combo_list.addItem(item)
+        self._combo_choices = populate_choice_list(self._combo_list, combos)
 
     def _choose_combo(self) -> None:
         item = self._combo_list.currentItem()
@@ -2870,12 +2861,7 @@ class ProvisionMainWindow(QMainWindow):
 
     def _populate_versions(self) -> None:
         assert self.state.mr is not None
-        while self._versions_layout.count():
-            item = self._versions_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._version_combos.clear()
+        clear_layout_widgets(self._versions_layout)
         selections = ruyi_facade.list_package_version_selections(
             self.state.config,
             self.state.mr,
@@ -2887,32 +2873,10 @@ class ProvisionMainWindow(QMainWindow):
                 "Leave the default selection to install the latest version."
             )
         )
-        for sel in selections:
-            label = QLabel(sel.package_name)
-            combo = QComboBox()
-            combo.setAccessibleName(
-                _("Version for {package}", package=sel.package_name)
-            )
-            label.setBuddy(combo)
-            for option in sel.options:
-                combo.addItem(option.display_name, option.atom)
-            combo.setEnabled(sel.locked_reason is None and len(sel.options) > 1)
-            if sel.locked_reason:
-                label.setText(
-                    _(
-                        "{package} ({reason})",
-                        package=sel.package_name,
-                        reason=sel.locked_reason,
-                    )
-                )
-            row = QHBoxLayout()
-            row.addWidget(label, 2)
-            row.addWidget(combo, 3)
-            wrapper = QWidget()
-            wrapper.setLayout(row)
-            self._versions_layout.addWidget(wrapper)
-            self._version_combos.append(combo)
-        self._versions_layout.addStretch()
+        self._version_combos = build_version_selection_rows(
+            self._versions_layout,
+            selections,
+        )
 
     def _commit_versions(self) -> None:
         if not self._version_combos:
@@ -2923,16 +2887,7 @@ class ProvisionMainWindow(QMainWindow):
         ]
 
     def _populate_packages(self) -> None:
-        self._packages_list.clear()
-        if self.state.pkg_atoms:
-            for atom in self.state.pkg_atoms:
-                self._packages_list.addItem(atom)
-        else:
-            self._packages_list.addItem(
-                _(
-                    "No packages. The selected image only contains a post-install message."
-                )
-            )
+        populate_package_list(self._packages_list, self.state.pkg_atoms)
 
     def _populate_storage(
         self,

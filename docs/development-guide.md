@@ -117,6 +117,9 @@ The main boundaries are:
   wrappers and owns repository mutations and QProcess lifecycle.
 - `ui/about_page.py` owns the About page's read-only widget tree;
   `AboutTab` retains runtime version probes and telemetry calculation.
+- `ui/provision_content.py` owns reusable rendering for device/variant/image
+  choices, package atoms, and version-selection rows; the main window retains
+  all ruyi lookups and selection commits.
 - `processes/environment.py` centralizes the common QProcess locale, Rich
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.

@@ -38,7 +38,7 @@ Use this map to find the owning boundary:
   `oh_my_ruyi/main_window.py`.
 - Reusable Qt helpers, common table policy, dialogs, version/repository table
   rendering, provisioning/version-manager/repository/About page construction,
-  and theme generation:
+  shared provisioning content rendering, and theme generation:
   `oh_my_ruyi/ui/`.
 - First-use eligibility policy: `oh_my_ruyi/core/first_use_policy.py`; setup
   step/status UI: `oh_my_ruyi/ui/first_use_dialog.py`; `first_use.py` keeps
