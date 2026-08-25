@@ -257,6 +257,11 @@ QT_QPA_PLATFORM=offscreen ./dist/oh-my-ruyi \
   -m oh_my_ruyi.processes.version_activation_child --help
 ```
 
+The tag workflow runs additional frozen checks before uploading artifacts. It
+checks `-m ruyi version`, the activation child, repository child argument
+validation, and a GUI process that remains alive for the smoke interval. A
+`ModuleNotFoundError` from any dynamic child import fails the workflow.
+
 Exercise ruyi's version query through the same dispatcher:
 
 ```bash

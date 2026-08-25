@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import runpy
 import tomllib
 from types import SimpleNamespace
 
@@ -73,3 +74,19 @@ def test_pyinstaller_spec_collects_dynamic_children_and_cffi() -> None:
     assert "collect_submodules('oh_my_ruyi.processes')" in spec
     assert "'_cffi_backend'" in spec
     assert "collect_all('ruyi')" in spec
+
+
+def test_script_entrypoint_can_run_without_relative_imports(monkeypatch) -> None:
+    called_with: list[list[str]] = []
+    monkeypatch.setattr(
+        "oh_my_ruyi.app.run",
+        lambda argv: called_with.append(argv) or 19,
+    )
+
+    namespace = runpy.run_path(
+        PROJECT_ROOT / "oh_my_ruyi" / "__main__.py",
+        run_name="pyinstaller_entrypoint_probe",
+    )
+
+    assert namespace["main"](["oh-my-ruyi"]) == 19
+    assert called_with == [["oh-my-ruyi"]]
