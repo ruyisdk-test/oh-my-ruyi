@@ -192,10 +192,7 @@ For release binaries, also validate the PyInstaller child-process entry point:
 
 ```bash
 uv run --locked --with pyinstaller pyinstaller --clean --onefile \
-  --paths . --collect-data oh_my_ruyi \
-  --collect-submodules oh_my_ruyi.processes --hidden-import _cffi_backend \
-  --collect-all ruyi \
-  oh_my_ruyi/__main__.py
+  oh-my-ruyi.spec
 ```
 
 The frozen executable must dispatch `-m oh_my_ruyi.processes.*` and `-m ruyi`

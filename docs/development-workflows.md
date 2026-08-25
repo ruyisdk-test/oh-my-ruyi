@@ -222,8 +222,8 @@ When adding a child:
 1. Add the module under `processes/`.
 2. Use `configure_qprocess_environment()` on the Qt side.
 3. Register its fully qualified name in `__main__._CHILD_MODULES`.
-4. Add `--collect-submodules oh_my_ruyi.processes` to release builds if not
-   already present.
+4. Add the child to `_CHILD_MODULES`; the shared PyInstaller spec collects all
+   `oh_my_ruyi.processes` submodules.
 5. Add normal interpreter and frozen dispatcher tests.
 6. Check process identity in the parent before consuming late output/results.
 

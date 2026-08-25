@@ -65,8 +65,8 @@ normally. `_run_embedded_command()` handles these arguments in-process:
   silently interpreted as an internal command.
 
 Every new child process must be added to `_CHILD_MODULES`, collected by the
-PyInstaller command, and covered by `tests/test_packaging.py` plus a frozen
-build smoke check.
+PyInstaller spec, and covered by `tests/test_packaging.py` plus a frozen build
+smoke check.
 
 ## Main Window Composition
 

@@ -237,18 +237,13 @@ is:
 
 ```bash
 uv run --locked --with pyinstaller pyinstaller --clean --onefile \
-  --paths . --collect-data oh_my_ruyi \
-  --collect-submodules oh_my_ruyi.processes \
-  --hidden-import _cffi_backend \
-  --collect-all ruyi \
-  oh_my_ruyi/__main__.py
+  oh-my-ruyi.spec
 ```
 
-`--paths .` is required because `oh_my_ruyi/__main__.py` is passed as a script
-but imports the package absolutely. `--collect-submodules` includes child
-modules that are dynamically selected by the frozen dispatcher. `_cffi_backend`
-is required by pygit2/cffi and is not reliably inferred from the dynamic ruyi
-imports.
+The spec sets the project path, collects application resources, includes every
+`oh_my_ruyi.processes` child module selected dynamically by the frozen
+dispatcher, and explicitly includes `_cffi_backend`, which is required by
+pygit2/cffi and is not reliably inferred from dynamic ruyi imports.
 
 Use temporary `--workpath`, `--distpath`, and `--specpath` directories while
 testing locally so generated specs/build output do not enter the repository.

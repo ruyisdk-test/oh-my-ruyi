@@ -65,3 +65,11 @@ def test_frozen_entrypoint_dispatches_ruyi_with_cli_argv0(monkeypatch) -> None:
 
     assert result == 0
     assert calls == [["ruyi", "version"]]
+
+
+def test_pyinstaller_spec_collects_dynamic_children_and_cffi() -> None:
+    spec = (PROJECT_ROOT / "oh-my-ruyi.spec").read_text()
+
+    assert "collect_submodules('oh_my_ruyi.processes')" in spec
+    assert "'_cffi_backend'" in spec
+    assert "collect_all('ruyi')" in spec
