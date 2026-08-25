@@ -12,6 +12,7 @@ from .common import (
     VersionTableItem,
     message_box,
 )
+from .repo_dialogs import RepoSourceDialog, RepoUpdateDialog
 from .version_dialogs import VersionDownloadDialog
 
 __all__ = [
@@ -20,5 +21,7 @@ __all__ = [
     "STORAGE_MOUNTED_ROLE",
     "VersionDownloadDialog",
     "VersionTableItem",
+    "RepoSourceDialog",
+    "RepoUpdateDialog",
     "message_box",
 ]
