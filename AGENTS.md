@@ -33,6 +33,7 @@ Before a general change, read:
 Use this map to find the owning boundary:
 
 - Application bootstrap and locale initialization: `oh_my_ruyi/app.py`.
+- Qt-free shared formatting helpers: `oh_my_ruyi/core/formatting.py`.
 - Top-level tabs, version UI, and provisioning state machine:
   `oh_my_ruyi/main_window.py`.
 - Reusable Qt helpers and version download dialog: `oh_my_ruyi/ui/`.

@@ -69,6 +69,7 @@ from .rich_output import (
     strip_terminal_controls,
 )
 from .core.state import WizardState
+from .core.formatting import format_bytes
 from .workers import (
     FlashWorker,
     RepoInitWorker,
@@ -2649,12 +2650,8 @@ class ProvisionMainWindow(QMainWindow):
 
     @staticmethod
     def _format_file_size(size: int) -> str:
-        value = float(size)
-        for unit in ("B", "KiB", "MiB", "GiB"):
-            if value < 1024 or unit == "GiB":
-                return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        raise AssertionError("unreachable")
+        """Keep the existing table helper as a compatibility entry point."""
+        return format_bytes(size)
 
     def _align_pm_status_heights(self) -> None:
         labels = (self._pm_status, self._pm_path_status)

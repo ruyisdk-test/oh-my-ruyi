@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from .i18n import _
+from .core.formatting import STORAGE_BYTE_UNITS, format_bytes
 
 DEFAULT_DEVICE_ROOT = "/dev"
 
@@ -571,11 +572,5 @@ def _read_sysfs_text(path: pathlib.Path) -> str | None:
 
 
 def _format_bytes(size: int) -> str:
-    units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
-    value = float(size)
-    unit = units[0]
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            break
-        value /= 1024
-    return f"{value:.1f} {unit}" if unit != "B" else f"{size} B"
+    """Keep the storage module's private formatting entry point stable."""
+    return format_bytes(size, units=STORAGE_BYTE_UNITS)

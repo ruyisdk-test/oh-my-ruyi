@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import version_manager
+from ..core.formatting import format_bytes
 from ..i18n import _, translate_widget_tree
 from ..rich_output import RichTextView
 
@@ -97,15 +98,15 @@ class VersionDownloadDialog(QDialog):
             self._progress.setFormat(
                 _(
                     "%p% ({downloaded} / {total})",
-                    downloaded=self._format_bytes(downloaded),
-                    total=self._format_bytes(total),
+                    downloaded=format_bytes(downloaded),
+                    total=format_bytes(total),
                 )
             )
         else:
             self._progress.setRange(0, 100)
             self._progress.setValue(0)
             self._progress.setFormat(
-                _("{size} downloaded", size=self._format_bytes(downloaded))
+                _("{size} downloaded", size=format_bytes(downloaded))
             )
 
     def show_failure(self, message: str) -> None:
@@ -168,12 +169,8 @@ class VersionDownloadDialog(QDialog):
 
     @staticmethod
     def _format_bytes(size: int) -> str:
-        value = float(size)
-        for unit in ("B", "KiB", "MiB", "GiB"):
-            if value < 1024 or unit == "GiB":
-                return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        raise AssertionError("unreachable")
+        """Keep the old private entry point for callers and tests."""
+        return format_bytes(size)
 
 
 __all__ = ["VersionDownloadDialog"]

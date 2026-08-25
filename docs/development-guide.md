@@ -89,6 +89,9 @@ The main boundaries are:
   methods. The flat `state.py` file is a compatibility import.
 - `core/first_use_policy.py` owns the pure first-launch eligibility predicate;
   `first_use.py` owns the setup dialog and re-exports the predicate.
+- `core/formatting.py` owns shared byte-size formatting. Existing private
+  helpers in storage and version views call it so their import paths remain
+  stable.
 - `core/repo_presets.py` owns immutable preset data; `repo_presets.py` remains a
   compatibility import.
 - `ui/common.py` owns shared Qt constants, translated message boxes, and

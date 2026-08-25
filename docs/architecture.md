@@ -32,6 +32,7 @@ and the boundary checks required before invoking those APIs.
 | `main_window.py` | Top-level tabs, wizard transitions, version controls, first-use orchestration | Ruyi metadata rules or a second download implementation |
 | `core/state.py` | Mutable provisioning scratch state and invalidation methods | Qt widgets, I/O, network, flashing |
 | `core/first_use_policy.py` | Pure first-launch eligibility predicate and PATH filtering | Dialogs, downloads, activation |
+| `core/formatting.py` | Qt-free byte-size formatting shared by storage and version views | UI state or filesystem access |
 | `core/repo_presets.py` | Immutable repository/source preset data | TOML writes or repository I/O |
 | `ui/common.py` | Small Qt constants, translated message-box adapter, semantic version table item | Application state |
 | `ui/version_dialogs.py`, `ui/repo_dialogs.py`, `ui/first_use_dialog.py` | Reusable Qt dialogs with narrow signal/data contracts | Starting workers or changing filesystem state |
