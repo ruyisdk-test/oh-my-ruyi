@@ -36,6 +36,7 @@ from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
 from . import host_storage, ruyi_facade, version_manager
 from .i18n import _
 from .ruyi_facade import PreparedProvision
+from .worker_runtime import start_worker
 
 
 def _set_terminal_target(config: GlobalConfig | None, target: str) -> None:
@@ -646,8 +647,9 @@ def run_worker_in_thread(worker: _BaseWorker) -> QThread:
     The worker's ``run()`` slot is invoked via a queued connection once the
     thread's event loop starts.
     """
-    thread = QThread()
-    worker.moveToThread(thread)
-    thread.started.connect(worker.run, type=Qt.ConnectionType.QueuedConnection)
-    thread.start()
-    return thread
+    return start_worker(
+        worker,
+        worker.run,
+        thread_factory=QThread,
+        connection_type=Qt.ConnectionType.QueuedConnection,
+    )

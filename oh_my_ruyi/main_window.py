@@ -21,7 +21,6 @@ from PySide6.QtCore import (
     QEvent,
     QProcess,
     QProcessEnvironment,
-    Signal,
     QTimer,
     Qt,
     QUrl,
@@ -32,8 +31,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGroupBox,
@@ -46,7 +43,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -72,7 +68,7 @@ from .rich_output import (
     rich_to_html,
     strip_terminal_controls,
 )
-from .state import WizardState
+from .core.state import WizardState
 from .workers import (
     FlashWorker,
     RepoInitWorker,
@@ -86,186 +82,16 @@ from .workers import (
     VersionDownloadWorker,
     run_worker_in_thread,
 )
+from .worker_runtime import stop_thread
 
-FASTBOOT_PROGRAM = "fastboot"
-STORAGE_MOUNTED_ROLE = Qt.ItemDataRole.UserRole.value + 1
-STORAGE_FINGERPRINT_ROLE = Qt.ItemDataRole.UserRole.value + 2
-
-
-def _message_box(method, parent, title: str, message: str, *args):
-    return method(parent, _(title), _(message), *args)
-
-
-class _VersionTableItem(QTableWidgetItem):
-    """Sort version cells by their semantic components instead of text."""
-
-    def __init__(self, version: str) -> None:
-        super().__init__(version)
-        self._sort_key = version_manager.version_sort_key(version)
-
-    def __lt__(self, other: QTableWidgetItem) -> bool:
-        if isinstance(other, _VersionTableItem):
-            return self._sort_key < other._sort_key
-        return super().__lt__(other)
-
-
-class _VersionDownloadDialog(QDialog):
-    """Select a release URL, then show that download's progress in place."""
-
-    download_requested = Signal(str)
-    cancel_requested = Signal()
-
-    def __init__(
-        self,
-        release: version_manager.RuyiRelease,
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        self.setWindowTitle(_("Download ruyi {version}", version=release.version))
-        self.setModal(True)
-        self.setMinimumWidth(560)
-        self._downloading = False
-        self._cancelling = False
-
-        layout = QVBoxLayout(self)
-        prompt = QLabel("Select a download URL:")
-        self._url_combo = QComboBox()
-        self._url_combo.setAccessibleName("Ruyi download URL")
-        self._url_combo.addItems(release.download_urls)
-        self._url_combo.currentTextChanged.connect(self._url_combo.setToolTip)
-        self._url_combo.setToolTip(self._url_combo.currentText())
-        prompt.setBuddy(self._url_combo)
-        layout.addWidget(prompt)
-        layout.addWidget(self._url_combo)
-
-        self._progress = QProgressBar()
-        self._progress.setVisible(False)
-        self._status = QLabel("")
-        self._status.setWordWrap(True)
-        self._output = RichTextView()
-        self._output.setMaximumHeight(100)
-        self._output.hide()
-        layout.addWidget(self._progress)
-        layout.addWidget(self._status)
-        layout.addWidget(self._output)
-
-        self._buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        self._download_button = self._buttons.addButton(
-            "Download",
-            QDialogButtonBox.ButtonRole.AcceptRole,
-        )
-        self._cancel_button = self._buttons.button(
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        self._download_button.clicked.connect(self._request_download)
-        self._buttons.rejected.connect(self.reject)
-        layout.addWidget(self._buttons)
-        translate_widget_tree(self)
-
-    def _request_download(self) -> None:
-        url = self._url_combo.currentText()
-        if self._downloading or not url:
-            return
-        self._downloading = True
-        self._url_combo.setEnabled(False)
-        self._download_button.setEnabled(False)
-        self._cancel_button.setEnabled(True)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Connecting..."))
-        self._progress.setVisible(True)
-        self._output.clear()
-        self._output.hide()
-        self._status.setText(_("Downloading the selected ruyi release..."))
-        self._status.setToolTip(url)
-        self._set_status_kind(None)
-        self.download_requested.emit(url)
-
-    def update_progress(self, downloaded: int, total: int) -> None:
-        if total > 0:
-            percent = min(100, downloaded * 100 // total)
-            self._progress.setRange(0, 100)
-            self._progress.setValue(percent)
-            self._progress.setFormat(
-                _(
-                    "%p% ({downloaded} / {total})",
-                    downloaded=self._format_bytes(downloaded),
-                    total=self._format_bytes(total),
-                )
-            )
-        else:
-            self._progress.setRange(0, 100)
-            self._progress.setValue(0)
-            self._progress.setFormat(
-                _("{size} downloaded", size=self._format_bytes(downloaded))
-            )
-
-    def show_failure(self, message: str) -> None:
-        self._downloading = False
-        self._cancelling = False
-        self._url_combo.setEnabled(True)
-        self._download_button.setText(_("Retry"))
-        self._download_button.setEnabled(True)
-        self._cancel_button.setEnabled(True)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Download failed"))
-        self._status.setText(_("Download failed. See output below."))
-        self._status.setToolTip("")
-        self._output.append_plain_status(message)
-        self._output.show()
-        self._set_status_kind("error")
-
-    def complete(self) -> None:
-        self._downloading = False
-        self._cancelling = False
-        self.accept()
-
-    def complete_cancellation(self) -> None:
-        self._downloading = False
-        self._cancelling = False
-        super().reject()
-
-    def reject(self) -> None:
-        if self._downloading:
-            self._request_cancel()
-            return
-        super().reject()
-
-    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override
-        if self._downloading:
-            self._request_cancel()
-            event.accept()
-            return
-        super().closeEvent(event)
-
-    def _request_cancel(self) -> None:
-        if self._cancelling:
-            return
-        self._cancelling = True
-        self._cancel_button.setEnabled(False)
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setFormat(_("Cancelling..."))
-        self._status.setText(_("Stopping the download and removing temporary data..."))
-        self._set_status_kind(None)
-        self.cancel_requested.emit()
-        super().reject()
-
-    def _set_status_kind(self, kind: str | None) -> None:
-        self._status.setText(_(self._status.text()))
-        self._status.setProperty("statusKind", kind or "")
-        self._status.style().unpolish(self._status)
-        self._status.style().polish(self._status)
-
-    @staticmethod
-    def _format_bytes(size: int) -> str:
-        value = float(size)
-        for unit in ("B", "KiB", "MiB", "GiB"):
-            if value < 1024 or unit == "GiB":
-                return f"{int(value)} {unit}" if unit == "B" else f"{value:.1f} {unit}"
-            value /= 1024
-        raise AssertionError("unreachable")
+from .ui.common import (
+    FASTBOOT_PROGRAM,
+    STORAGE_FINGERPRINT_ROLE,
+    STORAGE_MOUNTED_ROLE,
+    VersionTableItem as _VersionTableItem,
+    message_box as _message_box,
+)
+from .ui.version_dialogs import VersionDownloadDialog as _VersionDownloadDialog
 
 
 class ProvisionMainWindow(QMainWindow):
@@ -881,16 +707,7 @@ class ProvisionMainWindow(QMainWindow):
         self._start_repo_init()
 
     def _reset_provision_for_repo_change(self) -> None:
-        self.state.mr = None
-        self.state.device = None
-        self.state.variant = None
-        self.state.combo = None
-        self.state.pkg_atoms = []
-        self.state.prepared = None
-        self.state.host_blkdev_map = {}
-        self.state.host_blkdev_fingerprints = {}
-        self.state.flash_ret = None
-        self.state.postinst_msg = None
+        self.state.reset_for_repository()
         self._versions_visited = False
         self._download_ok = False
         self._download_recoverable = False
@@ -2099,9 +1916,7 @@ class ProvisionMainWindow(QMainWindow):
         self._start_download()
 
     def _reselect_versions(self) -> None:
-        self.state.prepared = None
-        self.state.host_blkdev_map = {}
-        self.state.host_blkdev_fingerprints = {}
+        self.state.clear_prepared()
         self._download_ok = False
         self._download_recoverable = False
         if (
@@ -2123,14 +1938,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_recoverable = False
         self._flash_recoverable = False
         self._versions_visited = False
-        self.state.device = None
-        self.state.variant = None
-        self.state.combo = None
-        self.state.pkg_atoms = []
-        self.state.prepared = None
-        self.state.host_blkdev_map = {}
-        self.state.host_blkdev_fingerprints = {}
-        self.state.flash_ret = None
+        self.state.reset_for_restart()
         self._populate_devices()
         self._set_step(self.STEP_DEVICE)
 
@@ -2583,16 +2391,14 @@ class ProvisionMainWindow(QMainWindow):
 
     def _cleanup_thread(self) -> None:
         if self._thread is not None:
-            self._thread.quit()
-            self._thread.wait()
+            stop_thread(self._thread)
             self._thread.deleteLater()
         self._thread = None
         self._worker = None
 
     def _cleanup_pm_thread(self) -> None:
         if self._pm_thread is not None:
-            self._pm_thread.quit()
-            self._pm_thread.wait()
+            stop_thread(self._pm_thread)
             self._pm_thread.deleteLater()
         self._pm_thread = None
         self._pm_worker = None

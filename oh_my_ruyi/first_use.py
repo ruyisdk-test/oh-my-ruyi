@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import sys
-from pathlib import Path
-from typing import Callable
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog,
@@ -20,6 +14,10 @@ from PySide6.QtWidgets import (
 )
 
 from .i18n import _, translate_widget_tree
+from .core.first_use_policy import (
+    _find_external_ruyi,  # noqa: F401 - retain the former private import path
+    should_offer_first_use_setup,
+)
 
 
 SETUP_STEPS = (
@@ -28,49 +26,6 @@ SETUP_STEPS = (
     "Choose and update the RuyiSDK mirror",
     "Review the completed setup",
 )
-
-
-def should_offer_first_use_setup(
-    telemetry_installation: Path,
-    managed_data_directory: Path,
-    *,
-    path: str | None = None,
-    runtime_executable: Path | None = None,
-    which: Callable[..., str | None] = shutil.which,
-) -> bool:
-    """Return whether all three first-use conditions are satisfied."""
-    return (
-        not Path(telemetry_installation).exists()
-        and _find_external_ruyi(
-            path=path,
-            runtime_executable=runtime_executable,
-            which=which,
-        )
-        is None
-        and not Path(managed_data_directory).exists()
-    )
-
-
-def _find_external_ruyi(
-    *,
-    path: str | None,
-    runtime_executable: Path | None,
-    which: Callable[..., str | None],
-) -> str | None:
-    """Find ruyi outside the scripts directory of the running Python environment."""
-    runtime_executable = (
-        Path(sys.executable) if runtime_executable is None else Path(runtime_executable)
-    )
-    runtime_scripts = runtime_executable.parent.resolve(strict=False)
-    search_path = os.environ.get("PATH", os.defpath) if path is None else path
-    external_directories: list[str] = []
-    for entry in search_path.split(os.pathsep):
-        directory = Path(entry or os.curdir).expanduser().resolve(strict=False)
-        if directory != runtime_scripts:
-            external_directories.append(entry)
-    if not external_directories:
-        return None
-    return which("ruyi", path=os.pathsep.join(external_directories))
 
 
 class FirstUseDialog(QDialog):
