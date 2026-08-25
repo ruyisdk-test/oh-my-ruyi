@@ -30,6 +30,7 @@ from .repo_page import (
 )
 from .repo_tables import populate_repository_tables
 from .provision_pages import ProvisionPageWidgets, build_provision_pages
+from .storage_rows import StorageRowWidgets, build_storage_row
 from .version_dialogs import VersionDownloadDialog
 from .version_manager_panels import (
     VersionManagerPanelWidgets,
@@ -68,6 +69,8 @@ __all__ = [
     "populate_repository_tables",
     "ProvisionPageWidgets",
     "build_provision_pages",
+    "StorageRowWidgets",
+    "build_storage_row",
     "populate_available_versions_table",
     "populate_installed_versions_table",
     "set_row_foreground",

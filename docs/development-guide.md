@@ -120,6 +120,9 @@ The main boundaries are:
 - `ui/provision_content.py` owns reusable rendering for device/variant/image
   choices, package atoms, and version-selection rows; the main window retains
   all ruyi lookups and selection commits.
+- `ui/storage_rows.py` owns one storage target row's controls and callback
+  wiring; the main window retains disk discovery, mount checks, fingerprints,
+  and destructive-operation validation.
 - `processes/environment.py` centralizes the common QProcess locale, Rich
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.

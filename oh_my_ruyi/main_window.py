@@ -96,6 +96,7 @@ from .ui.provision_content import (
     populate_choice_list,
     populate_package_list,
 )
+from .ui.storage_rows import build_storage_row
 from .ui.theme import stylesheet_for_colors, theme_colors
 
 
@@ -2912,56 +2913,21 @@ class ProvisionMainWindow(QMainWindow):
         for part in self.state.prepared.requested_host_blkdevs:
             previous_path = selected_paths.get(part)
             desc = ruyi_facade.part_description(part)
-            label = QLabel(f"{desc} ({part})")
-            edit = QComboBox()
-            edit.setEditable(True)
-            edit.setAccessibleName(_("Target disk for {description}", description=desc))
-            label.setBuddy(edit)
-            edit.lineEdit().setPlaceholderText("/dev/...")
-            for disk in disks:
-                edit.addItem(disk.display_name, disk.path)
-                index = edit.count() - 1
-                edit.setItemData(index, disk.mounted, STORAGE_MOUNTED_ROLE)
-                edit.setItemData(
-                    index,
-                    disk.fingerprint,
-                    STORAGE_FINGERPRINT_ROLE,
-                )
-            warning = QLabel(
-                _("The selected disk or one of its partitions is mounted.")
-            )
-            warning.setProperty("statusKind", "error")
-            warning.setVisible(False)
-            confirm = QCheckBox(_("I understand flashing may overwrite mounted data."))
-            confirm.setVisible(False)
-            confirm.toggled.connect(self._refresh_buttons)
-            edit.currentTextChanged.connect(
-                lambda _text, e=edit, w=warning, c=confirm: (
-                    self._on_storage_target_changed(e, w, c)
-                )
-            )
-            browse = QPushButton()
-            browse.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
-            )
-            browse_text = _(
-                "Choose target disk or image file for {description}",
+            widgets = build_storage_row(
+                part=part,
                 description=desc,
+                disks=disks,
+                style=self.style(),
+                mounted_role=STORAGE_MOUNTED_ROLE,
+                fingerprint_role=STORAGE_FINGERPRINT_ROLE,
+                refresh_buttons=self._refresh_buttons,
+                on_target_changed=self._on_storage_target_changed,
+                browse_storage=self._browse_storage,
             )
-            browse.setToolTip(browse_text)
-            browse.setAccessibleName(browse_text)
-            browse.clicked.connect(lambda _=False, e=edit: self._browse_storage(e))
-            row = QHBoxLayout()
-            row.addWidget(label, 2)
-            row.addWidget(edit, 3)
-            row.addWidget(browse)
-            wrapper = QWidget()
-            wrapper_layout = QVBoxLayout(wrapper)
-            wrapper_layout.setContentsMargins(0, 0, 0, 0)
-            wrapper_layout.addLayout(row)
-            wrapper_layout.addWidget(warning)
-            wrapper_layout.addWidget(confirm)
-            self._storage_layout.addWidget(wrapper)
+            edit = widgets.edit
+            warning = widgets.warning
+            confirm = widgets.confirmation
+            self._storage_layout.addWidget(widgets.wrapper)
             self._storage_inputs[part] = edit
             self._storage_mount_warnings[part] = warning
             self._storage_mount_confirmations[part] = confirm
