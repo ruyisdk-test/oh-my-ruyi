@@ -158,8 +158,9 @@ The main boundaries are:
   `gui/first_use.py` keeps compatibility exports for the dialog and pure
   detection predicate from `core/first_use_policy.py`; `gui/main_window.py`
   owns transitions and reuses existing version and repository operations.
-- `processes/*.py` owns child-process command adapters. Flat child modules remain
-  compatibility wrappers for existing `python -m` and QProcess callers.
+- `processes/*.py` owns child-process command adapters. QProcess callers invoke
+  these canonical modules directly; they are internal commands, not separate
+  public application entry points.
 
 ## Threading and Process Model
 

@@ -505,7 +505,7 @@ class RepoManagementTab(QWidget):
         process.setArguments(
             [
                 "-m",
-                "oh_my_ruyi.repo_update_child",
+                "oh_my_ruyi.processes.repo_update_child",
                 os.fspath(self._config_path),
                 repo_id,
             ]
@@ -657,7 +657,7 @@ class RepoManagementTab(QWidget):
         process.setArguments(
             [
                 "-m",
-                "oh_my_ruyi.repo_news_child",
+                "oh_my_ruyi.processes.repo_news_child",
                 os.fspath(self._config_path),
                 action,
             ]

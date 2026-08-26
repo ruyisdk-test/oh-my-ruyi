@@ -77,10 +77,10 @@ modules. Set the XDG environment required by the supplied config path, create
 the correct ruyi logger/config, perform exactly one operation, and return its
 integer exit code.
 
-Keep a flat compatibility wrapper when an existing QProcess command or user
-script invokes `python -m oh_my_ruyi.<name>`. The wrapper must only import and
-call the package implementation. Update the parent process command only after
-the compatibility path has a regression test.
+The parent should invoke the canonical `oh_my_ruyi.processes.<name>` module
+directly. Keep a root-level wrapper only when a documented external command
+contract requires that exact old spelling; do not create one merely to mirror a
+moved file.
 
 ## Adding an Adapter Function
 
@@ -121,8 +121,8 @@ intentional: existing callers and tests may monkeypatch a module global through
 the old path, and the patch must affect the moved implementation as well.
 
 When moving a module, search for both ordinary imports and command strings such
-as `python -m oh_my_ruyi.<name>`, add or update the alias, and add an identity
-test before removing any old entry point.
+as `python -m oh_my_ruyi.processes.<name>`. Only documented external commands
+justify keeping a legacy root entry point.
 
 ## Refactoring Checklist
 

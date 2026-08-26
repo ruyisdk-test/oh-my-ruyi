@@ -1320,7 +1320,7 @@ class ProvisionMainWindow(QMainWindow):
         self._download_process = QProcess(self)
         self._download_process.setProgram(sys.executable)
         self._download_process.setArguments(
-            ["-m", "oh_my_ruyi.download_child", *self.state.pkg_atoms]
+            ["-m", "oh_my_ruyi.processes.download_child", *self.state.pkg_atoms]
         )
         env = QProcessEnvironment.systemEnvironment()
         configure_ruyi_qprocess_environment(env, unbuffered=True)

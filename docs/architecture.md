@@ -60,7 +60,7 @@ and the boundary checks required before invoking those APIs.
 
 ## Compatibility Modules
 
-The old flat module names are part of the current test and subprocess surface.
+The old flat module names are part of the current import and test surface.
 They are intentionally thin aliases to the classified implementation tree:
 
 ```text
@@ -80,18 +80,14 @@ worker_runtime.py   -> runtime.worker_runtime
 worker_services.py  -> runtime.worker_services
 workers.py          -> runtime.workers
 state.py            -> core.state.WizardState
-download_child.py   -> processes.download_child.main
-repo_update_child.py -> processes.repo_update_child.main
-repo_news_child.py  -> processes.repo_news_child.main
 ```
 
 They are not alternate implementations. New code must import from `gui/`,
 `services/`, `runtime/`, `core/`, `ui/`, or `processes/`; external callers may
 continue using the flat path. The aliases return the canonical module object,
 so existing module-global monkeypatch targets still patch the implementation.
-The GUI may keep old `python -m oh_my_ruyi.*` command strings because existing
-installations and tests rely on them. Child wrappers forward to the same
-function and do not alter arguments, environment, or exit codes.
+The GUI starts child processes through their canonical `processes.*` module
+names. These are internal QProcess commands, not user-facing CLI entry points.
 
 The high-risk service modules now live under `services/`, but their former flat
 paths are module aliases. Their tests monkeypatch module globals such as
@@ -184,6 +180,6 @@ allowed to append to a new target.
 When adding behavior, first identify the owner in the table above. Add a pure
 service function or adapter method when the behavior is domain-facing; add a
 worker or child process when it blocks; add a widget only for rendering and
-user input. Keep the public flat import path when existing tests or subprocess
-commands use it, and add a focused test before changing a signal or invalidation
+user input. Keep a flat import path only when a documented external caller
+requires it, and add a focused test before changing a signal or invalidation
 contract.

@@ -82,9 +82,9 @@ implementation packages `gui/`, `services/`, `runtime/`, `core/`,
 unzip -l dist/*.whl | rg 'oh_my_ruyi/(gui|services|runtime|core|processes|ui|locales)'
 ```
 
-The root compatibility aliases and flat child wrappers are included because
-existing import and command paths remain supported. A PyInstaller build must
-collect package submodules and the ruyi package. After building, exercise the child entry points in a disposable
+The root compatibility aliases are included for documented import contracts.
+Child process modules are canonical package submodules. A PyInstaller build
+must collect package submodules and the ruyi package. After building, exercise the child entry points in a disposable
 configuration; never point a frozen smoke test at a real activation link or
 block device.
 

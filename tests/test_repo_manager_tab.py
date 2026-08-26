@@ -730,7 +730,7 @@ def test_update_child_imports_ruyi_for_local_only_repo(tmp_path: Path) -> None:
         [
             sys.executable,
             "-m",
-            "oh_my_ruyi.repo_update_child",
+            "oh_my_ruyi.processes.repo_update_child",
             os.fspath(config),
             "local-test",
         ],
@@ -776,7 +776,7 @@ def test_update_child_scopes_native_update_to_selected_repo(
         [
             sys.executable,
             "-m",
-            "oh_my_ruyi.repo_update_child",
+            "oh_my_ruyi.processes.repo_update_child",
             os.fspath(config),
             "selected",
         ],
@@ -823,7 +823,7 @@ def test_update_child_scopes_ruyisdk_update_away_from_other_active_repo(
         [
             sys.executable,
             "-m",
-            "oh_my_ruyi.repo_update_child",
+            "oh_my_ruyi.processes.repo_update_child",
             os.fspath(config),
             "ruyisdk",
         ],
@@ -871,7 +871,7 @@ This is unread news.
         [
             sys.executable,
             "-m",
-            "oh_my_ruyi.repo_news_child",
+            "oh_my_ruyi.processes.repo_news_child",
             os.fspath(config),
             "read",
         ],

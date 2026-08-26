@@ -61,8 +61,8 @@ Use this map to find the owning boundary:
   `oh_my_ruyi/processes/repo_update_child.py`, and
   `oh_my_ruyi/processes/repo_news_child.py`.
 - Package download child process: `oh_my_ruyi/processes/download_child.py`.
-  The flat child modules remain compatibility entry points for existing
-  `python -m` commands.
+  GUI subprocesses invoke this canonical module directly; it is an internal
+  process command, not a separate public application entry point.
 - Release discovery, downloads, activation, PATH state, and telemetry:
   `oh_my_ruyi/services/version_manager.py`.
 - Disk discovery, mount topology, and target fingerprints:
@@ -88,6 +88,8 @@ Use this map to find the owning boundary:
   add implementation logic to them or import them from new code; aliases must
   resolve to the canonical module object so existing monkeypatch targets stay
   valid.
+- Child process modules belong only under `processes/`. Do not add root-level
+  wrappers or preserve undocumented `python -m oh_my_ruyi.<child>` spellings.
 
 - Do not run repository I/O, downloads, disk discovery, package work, telemetry
   setup, or flashing on the Qt UI thread. Follow the existing QObject/QThread
