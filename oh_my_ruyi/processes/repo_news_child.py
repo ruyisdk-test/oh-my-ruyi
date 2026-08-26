@@ -19,7 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(os, "setpgrp"):
         os.setpgrp()
 
-    from ..i18n import initialize, localize_config
+    from ..runtime.i18n import initialize, localize_config
 
     initialize()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .app import run
+from .gui.app import run
 
 
 def main() -> int:

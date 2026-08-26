@@ -8,9 +8,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
-from .. import version_manager
+from ..services import version_manager
 from ..core.formatting import format_bytes
-from ..i18n import _
+from ..runtime.i18n import _
 from .common import VersionTableItem
 
 

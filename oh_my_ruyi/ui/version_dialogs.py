@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import version_manager
+from ..services import version_manager
 from ..core.formatting import format_bytes
-from ..i18n import _, translate_widget_tree
-from ..rich_output import RichTextView
+from ..runtime.i18n import _, translate_widget_tree
+from ..runtime.rich_output import RichTextView
 
 
 class VersionDownloadDialog(QDialog):

@@ -9,7 +9,7 @@ from ruyi.config import GlobalConfig
 from ruyi.ruyipkg.composite_repo import CompositeRepo
 from ruyi.ruyipkg.pkg_manifest import PartitionMapDecl
 
-from ..ruyi_facade import (
+from ..services.ruyi_facade import (
     ComboChoice,
     DeviceChoice,
     PreparedProvision,
@@ -17,7 +17,7 @@ from ..ruyi_facade import (
 )
 
 if TYPE_CHECKING:
-    from ..qt_logger import LogEmitter
+    from ..runtime.qt_logger import LogEmitter
 
 
 @dataclass(slots=True)

@@ -10,13 +10,13 @@ from __future__ import annotations
 import os
 import sys
 
-from ..i18n import initialize, localize_config
+from ..runtime.i18n import initialize, localize_config
 
 from ruyi.config import GlobalConfig
 from ruyi.log import RuyiConsoleLogger
 from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-from .. import ruyi_facade
+from ..services import ruyi_facade
 
 
 def main(argv: list[str] | None = None) -> int:

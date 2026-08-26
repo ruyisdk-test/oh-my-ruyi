@@ -7,8 +7,8 @@ from collections.abc import Iterable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
-from .. import repo_manager
-from ..i18n import _
+from ..services import repo_manager
+from ..runtime.i18n import _
 
 
 def populate_repository_tables(

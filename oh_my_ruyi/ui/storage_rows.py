@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..i18n import _
+from ..runtime.i18n import _
 
 
 class DiskChoice(Protocol):

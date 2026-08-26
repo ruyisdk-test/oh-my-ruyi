@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QProcessEnvironment
 
-from ..i18n import apply_qprocess_locale
-from ..rich_output import RICH_TERMINAL_ENV
+from ..runtime.i18n import apply_qprocess_locale
+from ..runtime.rich_output import RICH_TERMINAL_ENV
 
 
 def configure_ruyi_qprocess_environment(

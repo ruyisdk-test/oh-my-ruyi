@@ -18,9 +18,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from .. import repo_manager
-from ..i18n import _, translate_widget_tree
-from ..rich_output import RichTextView
+from ..services import repo_manager
+from ..runtime.i18n import _, translate_widget_tree
+from ..runtime.rich_output import RichTextView
 
 
 class RepoUpdateDialog(QDialog):

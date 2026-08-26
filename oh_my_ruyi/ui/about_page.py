@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..rich_output import RichTextView
+from ..runtime.rich_output import RichTextView
 
 
 @dataclass(slots=True)

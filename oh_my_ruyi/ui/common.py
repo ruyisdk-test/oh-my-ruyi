@@ -10,8 +10,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
 )
 
-from .. import version_manager
-from ..i18n import _
+from ..services import version_manager
+from ..runtime.i18n import _
 
 FASTBOOT_PROGRAM = "fastboot"
 STORAGE_MOUNTED_ROLE = Qt.ItemDataRole.UserRole.value + 1
