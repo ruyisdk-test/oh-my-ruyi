@@ -12,7 +12,7 @@ disk.
 | `test_smoke.py` | Imports, construction, worker thread start, logger and Rich rendering |
 | `test_i18n.py` | Locale precedence, catalogs, Qt text and subprocess environment |
 | `test_core_first_use_policy.py` | Qt-free first-use eligibility predicate |
-| `test_core_state.py` | Qt-free state invalidation and compatibility imports |
+| `test_core_state.py` | Qt-free state invalidation |
 | `test_first_use.py` | First-use setup dialog and Qt integration |
 | `test_host_storage.py` | Linux/macOS discovery, holders, mounts, fingerprints |
 | `test_version_manager.py` | Release parsing, downloads, activation, paths, telemetry |
@@ -82,9 +82,10 @@ implementation packages `gui/`, `services/`, `runtime/`, `core/`,
 unzip -l dist/*.whl | rg 'oh_my_ruyi/(gui|services|runtime|core|processes|ui|locales)'
 ```
 
-The root compatibility aliases are included for documented import contracts.
-Child process modules are canonical package submodules. A PyInstaller build
-must collect package submodules and the ruyi package. After building, exercise the child entry points in a disposable
+The package root contains only the package entry files. Child process modules
+are canonical package submodules. A PyInstaller build must collect package
+submodules and the ruyi package. After building, exercise the child entry
+points in a disposable
 configuration; never point a frozen smoke test at a real activation link or
 block device.
 
@@ -95,7 +96,7 @@ Classify failures before changing code:
 - import/compile failure: stale relative import after a move;
 - missing fixture/dependency: environment issue, report it separately;
 - signal timeout: worker/process ownership or cleanup regression;
-- wrong patched behavior: module-global compatibility break;
+- wrong patched behavior: stale import or wrong module-global patch target;
 - changed output: locale/Rich target routing regression;
 - storage test failure: fail-closed safety behavior, never relax the check.
 

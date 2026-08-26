@@ -19,9 +19,9 @@ should_offer_first_use_setup(
 )
 ```
 
-The UI module re-exports or imports the policy so existing callers keep their
-path. Tests should exercise the policy with `tmp_path`, a synthetic PATH, and a
-fake `which`; they should not need a `QApplication`.
+The GUI module imports the policy for its setup flow. Tests should exercise the
+policy with `tmp_path`, a synthetic PATH, and a fake `which`; they should not
+need a `QApplication`.
 
 ## Adding a Reusable Widget
 
@@ -54,8 +54,8 @@ make navigation harder to follow.
 
 Add a service worker to `runtime/worker_services.py` when it only retains
 operation inputs and emits a result; keep the flashing interception in
-`runtime/workers.py`. `runtime/workers.py` re-exports service workers so
-existing imports remain valid. Use `runtime/worker_runtime.start_worker()`
+`runtime/workers.py`. `runtime/workers.py` exposes the service worker classes
+alongside the flashing worker. Use `runtime/worker_runtime.start_worker()`
 through the existing `run_worker_in_thread()` wrapper. A worker must:
 
 1. keep all blocking ruyi, filesystem, network, and subprocess work in `run()`;
@@ -77,10 +77,8 @@ modules. Set the XDG environment required by the supplied config path, create
 the correct ruyi logger/config, perform exactly one operation, and return its
 integer exit code.
 
-The parent should invoke the canonical `oh_my_ruyi.processes.<name>` module
-directly. Keep a root-level wrapper only when a documented external command
-contract requires that exact old spelling; do not create one merely to mirror a
-moved file.
+The parent invokes the canonical `oh_my_ruyi.processes.<name>` module directly.
+The package root must not gain a wrapper merely to mirror a moved file.
 
 ## Adding an Adapter Function
 
@@ -94,8 +92,7 @@ display/validation only and mutate through ruyi's `ConfigEditor`.
 
 ## Adding a Repository Preset
 
-Add the preset to `core/repo_presets.py` with a stable ID and display name. The
-flat `repo_presets.py` module remains a compatibility import. Keep the built-in
+Add the preset to `core/repo_presets.py` with a stable ID and display name. Keep the built-in
 `ruyisdk` source first and non-removable. Presets start disabled. Add a
 focused test for ordering, source selection, and removal protection in
 `tests/test_repo_manager.py` or `tests/test_repo_manager_tab.py`.
@@ -111,18 +108,16 @@ Locale initialization is process-wide. Test routing in an isolated subprocess,
 and include both the application catalog and ruyi's required domains before
 enabling a locale. Confirm `locales/zh_CN.json` is inside the wheel.
 
-## Preserving Flat Import Paths
+## Keeping The Package Root Clean
 
 Implementation belongs in the classified package that owns the boundary:
-`gui/`, `services/`, `runtime/`, `core/`, `ui/`, or `processes/`. Root modules
-with the old names are compatibility aliases only. They must contain no
-behavior and must resolve to the canonical module object. This identity is
-intentional: existing callers and tests may monkeypatch a module global through
-the old path, and the patch must affect the moved implementation as well.
+`gui/`, `services/`, `runtime/`, `core/`, `ui/`, or `processes/`. The package
+root contains only `__init__.py` and `__main__.py`; do not add a second copy or
+an alias at the root when moving a module.
 
-When moving a module, search for both ordinary imports and command strings such
-as `python -m oh_my_ruyi.processes.<name>`. Only documented external commands
-justify keeping a legacy root entry point.
+When moving a module, search for ordinary imports and internal command strings
+such as `python -m oh_my_ruyi.processes.<name>`, then update them to the
+canonical path.
 
 ## Refactoring Checklist
 
@@ -131,7 +126,7 @@ Before editing:
 1. Read `README.md`, `docs/development-guide.md`, this document, and the owner.
 2. Search tests for monkeypatch targets and `python -m` command strings.
 3. Identify whether the code is pure, Qt-facing, blocking, or destructive.
-4. Prefer a move plus a thin compatibility import over duplicate implementations.
+4. Prefer a move with direct canonical imports over duplicate implementations.
 
 After editing:
 

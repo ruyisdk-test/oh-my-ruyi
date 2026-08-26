@@ -1,7 +1,7 @@
 # Architecture
 
-This document describes the code as it exists after the compatibility-preserving
-module split. It is intentionally more concrete than a generic layered-design
+This document describes the code as it exists after the classified module split.
+It is intentionally more concrete than a generic layered-design
 description: every boundary below has a current owner and a known test seam.
 
 ## Runtime Shape
@@ -48,7 +48,7 @@ and the boundary checks required before invoking those APIs.
 | `ui/storage_rows.py` | Storage target selector and mounted-warning row construction | Disk discovery, fingerprints, mount validation, or flashing |
 | `ui/wizard_shell.py` | Provisioning sidebar, summary, page stack, and navigation construction | Wizard transitions, invalidation, workers, or feature-tab behavior |
 | `runtime/worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
-| `runtime/workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
+| `runtime/workers.py` | Flash interception and worker coordination | Duplicating service workers or changing their patch seams |
 | `runtime/worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
 | `services/host_storage.py` | Disk discovery, topology, mount checks, fingerprints | Qt state or flashing commands |
 | `services/ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs | Reimplementation of ruyi algorithms |
@@ -58,41 +58,19 @@ and the boundary checks required before invoking those APIs.
 | `processes/*.py` | Blocking child-process command adapters | Qt objects or GUI state |
 | `processes/environment.py` | Shared locale, Rich terminal, buffering, and telemetry environment mutations | Process lifecycle or business operations |
 
-## Compatibility Modules
+## Package Root
 
-The old flat module names are part of the current import and test surface.
-They are intentionally thin aliases to the classified implementation tree:
+The package root contains only the two package-level files:
 
 ```text
-app.py              -> gui.app
-main_window.py      -> gui.main_window
-about_tab.py        -> gui.about_tab
-first_use.py        -> gui.first_use
-repo_manager_tab.py -> gui.repo_manager_tab
-host_storage.py     -> services.host_storage
-repo_manager.py     -> services.repo_manager
-ruyi_facade.py      -> services.ruyi_facade
-version_manager.py  -> services.version_manager
-i18n.py             -> runtime.i18n
-qt_logger.py        -> runtime.qt_logger
-rich_output.py      -> runtime.rich_output
-worker_runtime.py   -> runtime.worker_runtime
-worker_services.py  -> runtime.worker_services
-workers.py          -> runtime.workers
-state.py            -> core.state.WizardState
+oh_my_ruyi/__init__.py   package metadata
+oh_my_ruyi/__main__.py  `python -m oh_my_ruyi` application entry point
 ```
 
-They are not alternate implementations. New code must import from `gui/`,
-`services/`, `runtime/`, `core/`, `ui/`, or `processes/`; external callers may
-continue using the flat path. The aliases return the canonical module object,
-so existing module-global monkeypatch targets still patch the implementation.
-The GUI starts child processes through their canonical `processes.*` module
-names. These are internal QProcess commands, not user-facing CLI entry points.
-
-The high-risk service modules now live under `services/`, but their former flat
-paths are module aliases. Their tests monkeypatch module globals such as
-platform probes and ruyi classes; the alias identity keeps those patch targets
-unchanged while the implementation is physically classified.
+All implementation modules live under `gui/`, `services/`, `runtime/`,
+`core/`, `ui/`, and `processes/`. Tests and new code import those canonical
+paths directly. Child process modules are internal QProcess targets, not
+additional public command entry points.
 
 ## State Ownership
 
@@ -136,8 +114,8 @@ The extraction rule is conservative: a class or function may move when it has a
 small signal/data contract and no hidden access to the window's mutable state.
 The version download, repository source/update, first-use dialog, and
 provisioning page factory meet that rule. The service workers meet it because
-they only retain operation inputs and emit results; `runtime/workers.py` re-exports
-their original names for callers and tests. The page factory returns the
+they only retain operation inputs and emit results; `runtime/workers.py` exposes
+their worker classes with the flashing boundary. The page factory returns the
 widgets that the coordinator updates later; it does not move the wizard state
 machine out of `gui/main_window.py`.
 
@@ -180,6 +158,5 @@ allowed to append to a new target.
 When adding behavior, first identify the owner in the table above. Add a pure
 service function or adapter method when the behavior is domain-facing; add a
 worker or child process when it blocks; add a widget only for rendering and
-user input. Keep a flat import path only when a documented external caller
-requires it, and add a focused test before changing a signal or invalidation
-contract.
+user input. Import the owning canonical module directly, and add a focused test
+before changing a signal or invalidation contract.

@@ -97,4 +97,5 @@ different view.
 - Do not reuse a stale prepared plan after changing device, variant, image,
   package versions, repository, or storage target.
 - Do not test privileged or destructive operations against real system paths.
-- Keep compatibility wrappers behaviorless; they must not bypass validation.
+- Keep safety checks in their owning service or worker boundary; UI helpers and
+  process adapters must not bypass validation.

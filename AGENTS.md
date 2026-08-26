@@ -32,12 +32,10 @@ Before a general change, read:
 
 Use this map to find the owning boundary:
 
-- Application bootstrap and locale initialization: `oh_my_ruyi/gui/app.py`;
-  root `oh_my_ruyi/app.py` is a compatibility alias.
+- Application bootstrap and locale initialization: `oh_my_ruyi/gui/app.py`.
 - Qt-free shared formatting helpers: `oh_my_ruyi/core/formatting.py`.
 - Top-level tabs, version UI, and provisioning state machine:
-  `oh_my_ruyi/gui/main_window.py`; root `oh_my_ruyi/main_window.py` is a
-  compatibility alias.
+  `oh_my_ruyi/gui/main_window.py`.
 - Reusable Qt helpers, common table policy, dialogs, version/repository table
   rendering, provisioning/version-manager/repository/About page construction,
   shared provisioning content/storage-row/wizard-shell rendering, and theme
@@ -45,16 +43,15 @@ Use this map to find the owning boundary:
   `oh_my_ruyi/ui/`.
 - First-use eligibility policy: `oh_my_ruyi/core/first_use_policy.py`; setup
   step/status UI: `oh_my_ruyi/ui/first_use_dialog.py`; `gui/first_use.py`
-  keeps the policy and dialog compatibility exports.
+  coordinates the policy and dialog exports for the GUI.
 - Mutable provisioning selections and invalidation: `oh_my_ruyi/core/state.py`;
-  `oh_my_ruyi/state.py` is a compatibility import.
+  this module is the only state owner.
 - Immutable repository/source preset data: `oh_my_ruyi/core/repo_presets.py`;
-  `oh_my_ruyi/repo_presets.py` is a compatibility import.
-- Qt-free ruyi provisioning boundary: `oh_my_ruyi/services/ruyi_facade.py`;
-  root `ruyi_facade.py` is a compatibility alias.
+  this module is the only preset owner.
+- Qt-free ruyi provisioning boundary: `oh_my_ruyi/services/ruyi_facade.py`.
 - Service QThread workers for repository, storage, release, and telemetry:
-  `oh_my_ruyi/runtime/worker_services.py`; flashing interception and
-  compatibility worker exports: `oh_my_ruyi/runtime/workers.py`.
+  `oh_my_ruyi/runtime/worker_services.py`; flashing interception:
+  `oh_my_ruyi/runtime/workers.py`.
 - Shared worker thread startup and cleanup: `oh_my_ruyi/runtime/worker_runtime.py`.
 - Repository model and mutations: `oh_my_ruyi/services/repo_manager.py`.
 - Repository UI and update/news processes: `oh_my_ruyi/gui/repo_manager_tab.py`,
@@ -84,12 +81,9 @@ Use this map to find the owning boundary:
   Qt application orchestration, `services/` for ruyi/domain services, `runtime/`
   for logging/locale/workers, `core/` for pure policies/state, `ui/` for
   reusable presentation, and `processes/` for child commands.
-- Root modules that mirror those names are compatibility aliases only. Do not
-  add implementation logic to them or import them from new code; aliases must
-  resolve to the canonical module object so existing monkeypatch targets stay
-  valid.
-- Child process modules belong only under `processes/`. Do not add root-level
-  wrappers or preserve undocumented `python -m oh_my_ruyi.<child>` spellings.
+- Keep the package root clean: it contains only `__init__.py` and
+  `__main__.py`. All implementation modules belong under the classified
+  packages, and new code must import those canonical paths directly.
 
 - Do not run repository I/O, downloads, disk discovery, package work, telemetry
   setup, or flashing on the Qt UI thread. Follow the existing QObject/QThread

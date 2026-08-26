@@ -6,7 +6,7 @@ extension points for Oh My Ruyi. User-facing setup and operation remain in the
 
 Detailed topic references:
 
-- [Architecture](architecture.md) for ownership, compatibility imports, state,
+- [Architecture](architecture.md) for ownership, state,
   worker lifecycle, and output routing.
 - [Development Workflows](development-workflows.md) for adding policies,
   widgets, workers, child processes, adapters, presets, and locales.
@@ -82,21 +82,17 @@ than reproducing those domain rules in the GUI.
 The main boundaries are:
 
 - `gui/app.py` initializes locale routing, creates ruyi's `GlobalConfig`, and
-  starts `QApplication` and the main window. Root `app.py` is a compatibility
-  alias.
+  starts `QApplication` and the main window.
 - `gui/main_window.py` owns the top-level tabs, version management, and the
-  device provisioning state machine. Root `main_window.py` is a compatibility
-  alias.
+  device provisioning state machine.
 - `core/state.py` owns the Qt-free mutable wizard scratchpad and invalidation
-  methods. The flat `state.py` file is a compatibility import.
+  methods.
 - `core/first_use_policy.py` owns the pure first-launch eligibility predicate;
-  `gui/first_use.py` owns the setup dialog and re-exports the predicate. Root
-  `first_use.py` is a compatibility alias.
+  `gui/first_use.py` owns the setup dialog and re-exports the predicate.
 - `core/formatting.py` owns shared byte-size formatting. Existing private
   helpers in storage and version views call it so their import paths remain
   stable.
-- `core/repo_presets.py` owns immutable preset data; `repo_presets.py` remains a
-  compatibility import.
+- `core/repo_presets.py` owns immutable preset data.
 - `ui/common.py` owns shared Qt constants, translated message boxes, semantic
   version table sorting, and the common table selection/header policy.
   `ui/version_dialogs.py`,
@@ -105,8 +101,7 @@ The main boundaries are:
 - `ui/version_tables.py` owns release and installed-version table rendering;
   the main window supplies data and theme brushes and keeps orchestration.
 - `ui/theme.py` owns palette-derived semantic colors and stylesheet text;
-  `gui/main_window.py` only applies the stylesheet and keeps the palette wrapper
-  for compatibility.
+  `gui/main_window.py` only applies the stylesheet.
 - `ui/repo_tables.py` owns repository table rendering; `RepoManagementTab`
   still owns selection, mutations, and update processes.
 - `ui/provision_pages.py` owns provisioning page construction and callback
@@ -116,8 +111,8 @@ The main boundaries are:
   panel controls; `ProvisionMainWindow` assigns the returned controls before
   refreshing data and keeps all release/activation orchestration.
 - `ui/repo_page.py` owns repository panel construction and callback wiring;
-  `RepoManagementTab` retains its old private builders as thin compatibility
-  wrappers and owns repository mutations and QProcess lifecycle.
+  `RepoManagementTab` retains its private builders as thin construction helpers
+  and owns repository mutations and QProcess lifecycle.
 - `ui/about_page.py` owns the About page's read-only widget tree;
   `AboutTab` retains runtime version probes and telemetry calculation.
 - `ui/provision_content.py` owns reusable rendering for device/variant/image
@@ -133,13 +128,13 @@ The main boundaries are:
   terminal, buffering, and telemetry flags. The caller remains responsible for
   creating and configuring its own QProcess.
 - `gui/repo_manager_tab.py` owns repository configuration and update
-  interactions; root `repo_manager_tab.py` is a compatibility alias.
+  interactions.
 - `gui/about_tab.py` reports application, bundled ruyi, PATH ruyi, and telemetry
-  information; root `about_tab.py` is a compatibility alias.
+  information.
 - `core/state.py` contains the mutable state accumulated across provisioning
-  steps; `state.py` is a compatibility import.
+  steps.
 - `services/ruyi_facade.py` is the Qt-free boundary over imported ruyi
-  provisioning APIs; root `ruyi_facade.py` is a compatibility alias.
+  provisioning APIs.
 - `services/version_manager.py` handles release discovery, standalone binary downloads,
   activation, deactivation, deletion, PATH inspection, and telemetry setup.
 - `services/repo_manager.py` reads repository configuration for display and
@@ -148,15 +143,15 @@ The main boundaries are:
   checks, and device fingerprints.
 - `runtime/worker_services.py` wraps repository, storage, release, activation,
   and telemetry operations in QObjects that run on QThreads. `runtime/workers.py` owns the
-  flashing interception boundary and re-exports the service workers for
-  compatibility; `runtime/worker_runtime.py` centralizes queued startup and cleanup.
+  flashing interception boundary; `runtime/worker_runtime.py` centralizes
+  queued startup and cleanup.
 - `runtime/qt_logger.py` and `runtime/rich_output.py` preserve ruyi's Rich output, links,
   progress updates, and operation-specific routing in Qt views.
 - `runtime/i18n.py` coordinates application, Qt, imported ruyi, and subprocess
   locale selection.
 - `ui/first_use_dialog.py` owns the non-modal setup step/status dialog;
-  `gui/first_use.py` keeps compatibility exports for the dialog and pure
-  detection predicate from `core/first_use_policy.py`; `gui/main_window.py`
+  `gui/first_use.py` coordinates the dialog and pure detection predicate from
+  `core/first_use_policy.py`; `gui/main_window.py`
   owns transitions and reuses existing version and repository operations.
 - `processes/*.py` owns child-process command adapters. QProcess callers invoke
   these canonical modules directly; they are internal commands, not separate
@@ -200,8 +195,7 @@ The first and third paths come from ruyi's XDG helper, so Linux defaults live
 under `~/.local/` while macOS defaults live under `~/Library/Application Support/`.
 
 `core.first_use_policy.should_offer_first_use_setup()` owns this predicate. It is
-re-exported by `gui/first_use.py` and the root `first_use.py` alias for
-compatibility. Do not replace it
+re-exported by `gui/first_use.py`. Do not replace it
 with a separate completion marker: the file-system and PATH state are the
 contract. The PATH check removes the directory containing `sys.executable` before
 searching so the ruyi console script installed as Oh My Ruyi's Python dependency
@@ -254,9 +248,8 @@ TOML is parsed directly only for ordered display and validation. Mutations must
 go through ruyi's `ConfigEditor`; do not add a second TOML writer.
 
 The built-in `ruyisdk` entry remains first and cannot be removed. Additional
-repositories come from `core/repo_presets.py` (with `repo_presets.py` retained
-as a compatibility import), start disabled, and retain their preset IDs and
-names. Update and news output is rendered through the same Rich terminal view
+repositories come from `core/repo_presets.py`, start disabled, and retain their
+preset IDs and names. Update and news output is rendered through the same Rich terminal view
 used elsewhere in the application.
 
 ## Package Manager Versions
@@ -420,12 +413,13 @@ outside the GUI implementation.
 
 ```text
 oh_my_ruyi/
+  __init__.py           package metadata
   __main__.py           module entry point
   gui/                  application bootstrap and Qt feature orchestration
     app.py              locale, config, QApplication, and window bootstrap
     main_window.py      top-level tabs and provisioning flow
     about_tab.py        runtime and telemetry information
-    first_use.py        first-use compatibility exports and setup orchestration
+    first_use.py        first-use setup orchestration
     repo_manager_tab.py repository management UI
   services/             ruyi/domain service boundaries
     host_storage.py     disk discovery, mount checks, and fingerprints
@@ -438,14 +432,11 @@ oh_my_ruyi/
     rich_output.py      safe Rich/ANSI rendering in Qt
     worker_runtime.py   shared QThread startup and cleanup
     worker_services.py  repository, storage, release, and telemetry workers
-    workers.py          flashing interception and compatibility exports
+    workers.py          flashing interception and worker coordination
   core/                 Qt-free state, policies, formatting, and presets
   processes/            cancellable package/repository/news subprocesses
   ui/                   reusable Qt helpers, pages, and dialogs
   locales/              application translation catalogs
-  <legacy>.py           root compatibility aliases; no implementation logic
-  repo_presets.py       compatibility import for preset data
-  state.py              compatibility import for wizard state
 tests/
   test_i18n.py          locale routing and translated UI coverage
   test_smoke.py         construction, logger, and rendering smoke tests
