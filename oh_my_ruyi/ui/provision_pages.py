@@ -1,7 +1,7 @@
 """Build the provisioning wizard pages.
 
 The page factory owns widget construction and signal wiring only.  Provisioning
-state transitions remain in :mod:`oh_my_ruyi.main_window`; callbacks are passed
+state transitions remain in :mod:`oh_my_ruyi.gui.main_window`; callbacks are passed
 in so this module stays independent of the window's state machine.
 """
 

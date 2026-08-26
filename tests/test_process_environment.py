@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QProcessEnvironment
 
 from oh_my_ruyi.processes.environment import configure_ruyi_qprocess_environment
-from oh_my_ruyi.rich_output import RICH_TERMINAL_ENV
+from oh_my_ruyi.runtime.rich_output import RICH_TERMINAL_ENV
 
 
 def test_configure_ruyi_qprocess_environment_applies_shared_output_contract() -> None:

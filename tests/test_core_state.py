@@ -3,17 +3,6 @@
 from __future__ import annotations
 
 from oh_my_ruyi.core.state import WizardState
-from oh_my_ruyi.core.repo_presets import RepoPreset as CoreRepoPreset
-from oh_my_ruyi.state import WizardState as CompatibilityWizardState
-from oh_my_ruyi.repo_presets import RepoPreset as CompatibilityRepoPreset
-
-
-def test_repo_preset_compatibility_import_is_the_same_type() -> None:
-    assert CompatibilityRepoPreset is CoreRepoPreset
-
-
-def test_state_compatibility_import_is_the_same_type() -> None:
-    assert CompatibilityWizardState is WizardState
 
 
 def test_clear_prepared_discards_derived_values() -> None:

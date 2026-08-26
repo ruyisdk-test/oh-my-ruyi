@@ -1,4 +1,4 @@
-"""Flashing worker and compatibility exports for background operations.
+"""Flashing worker and worker exports for background operations.
 
 Three operations must not block the UI thread:
 
@@ -6,11 +6,11 @@ Three operations must not block the UI thread:
 * downloading and installing image packages,
 * running the flashing strategies (which shell out to ``sudo dd`` / ``fastboot``).
 
-The service workers live in :mod:`oh_my_ruyi.worker_services`; this module keeps
-the flashing interception boundary and the historical import names. Every
+The service workers live in :mod:`oh_my_ruyi.runtime.worker_services`; this
+module keeps the flashing interception boundary and worker exports. Every
 worker is moved to a :class:`QThread`, and results are reported via Qt signals.
 All workers log into
-the same :class:`~oh_my_ruyi.qt_logger.QtRuyiLogger` that
+the same :class:`~oh_my_ruyi.runtime.qt_logger.QtRuyiLogger` that
 ``GlobalConfig`` was constructed with, so the main window's log view sees
 every line in real time.
 """

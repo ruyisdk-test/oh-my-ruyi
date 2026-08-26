@@ -13,14 +13,15 @@ from PySide6.QtWidgets import QApplication
 from ruyi.config import GlobalConfig
 from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-from oh_my_ruyi import first_use, host_storage, ruyi_facade, version_manager, workers
-from oh_my_ruyi import main_window
-from oh_my_ruyi.main_window import (
+from oh_my_ruyi.gui import first_use, main_window
+from oh_my_ruyi.gui.main_window import (
     ProvisionMainWindow,
     _VersionDownloadDialog,
 )
-from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-from oh_my_ruyi.workers import FlashWorker
+from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
+from oh_my_ruyi.runtime.workers import FlashWorker
+from oh_my_ruyi.runtime import workers
+from oh_my_ruyi.services import host_storage, ruyi_facade, version_manager
 
 
 def _elf_header(machine: int, *, elf_class: int = 2) -> bytes:

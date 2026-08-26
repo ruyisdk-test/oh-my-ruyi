@@ -1,9 +1,9 @@
-"""First-use policy compatibility exports."""
+"""First-use policy and setup-dialog exports for the GUI."""
 
 from __future__ import annotations
 
 from ..core.first_use_policy import (
-    _find_external_ruyi,  # noqa: F401 - retain the former private import path
+    _find_external_ruyi,  # noqa: F401 - shared policy helper
     should_offer_first_use_setup,
 )
 from ..ui.first_use_dialog import FirstUseDialog, SETUP_STEPS

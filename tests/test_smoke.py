@@ -17,27 +17,19 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 def test_package_imports_cleanly() -> None:
     import oh_my_ruyi  # noqa: F401
-    from oh_my_ruyi import (  # noqa: F401
-        app,
-        about_tab,
-        first_use,
-        host_storage,
-        main_window,
-        qt_logger,
-        repo_manager,
-        repo_manager_tab,
-        repo_presets,
-        rich_output,
-        ruyi_facade,
-        state,
-        version_manager,
-        workers,
-    )
+    from oh_my_ruyi import core, gui, processes, runtime, services, ui  # noqa: F401
+    from oh_my_ruyi.core import repo_presets, state  # noqa: F401
+    from oh_my_ruyi.gui import about_tab, app, first_use, main_window  # noqa: F401
+    from oh_my_ruyi.gui import repo_manager_tab  # noqa: F401
+    from oh_my_ruyi.runtime import i18n, qt_logger, rich_output, worker_runtime  # noqa: F401
+    from oh_my_ruyi.runtime import worker_services, workers  # noqa: F401
+    from oh_my_ruyi.services import host_storage, repo_manager, ruyi_facade  # noqa: F401
+    from oh_my_ruyi.services import version_manager  # noqa: F401
 
 
 def test_qt_logger_emits_signal(qtbot) -> None:
     """A QtRuyiLogger should re-emit every log call via the LogEmitter."""
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
     gm = EnvGlobalModeProvider({}, [])
@@ -60,8 +52,8 @@ def test_qt_logger_preserves_rich_styles_and_links(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.runtime.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     emitter = LogEmitter()
@@ -88,7 +80,7 @@ def test_qt_logger_preserves_renderables_and_debug_messages(qtbot) -> None:
     from rich.text import Text
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
 
     emitter = LogEmitter()
     logger = QtRuyiLogger(
@@ -111,7 +103,7 @@ def test_qt_logger_preserves_renderables_and_debug_messages(qtbot) -> None:
 def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.runtime.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -128,7 +120,7 @@ def test_rich_text_view_handles_chunked_ansi_and_progress(qtbot) -> None:
 def test_rich_text_view_normalizes_bel_terminated_links(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView
+    from oh_my_ruyi.runtime.rich_output import RichTextView
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -144,7 +136,7 @@ def test_rich_text_view_normalizes_bel_terminated_links(qtbot) -> None:
 def test_rich_text_view_rejects_unsafe_links_and_preserves_erase_prefix(qtbot) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from oh_my_ruyi.rich_output import RichTextView, strip_terminal_controls
+    from oh_my_ruyi.runtime.rich_output import RichTextView, strip_terminal_controls
 
     _app = QApplication.instance() or QApplication([])
     view = RichTextView()
@@ -161,7 +153,7 @@ def test_rich_text_view_rejects_unsafe_links_and_preserves_erase_prefix(qtbot) -
 
 
 def test_facade_exposes_expected_symbols() -> None:
-    from oh_my_ruyi import ruyi_facade
+    from oh_my_ruyi.services import ruyi_facade
 
     for name in [
         "list_devices",
@@ -194,8 +186,8 @@ def test_main_window_constructs(qtbot, tmp_path) -> None:
     from ruyi.config import GlobalConfig
     from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-    from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-    from oh_my_ruyi.main_window import ProvisionMainWindow
+    from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
+    from oh_my_ruyi.gui.main_window import ProvisionMainWindow
 
     _app = QApplication.instance() or QApplication([])
     gm = EnvGlobalModeProvider({}, [])
@@ -217,8 +209,8 @@ def test_main_window_constructs(qtbot, tmp_path) -> None:
 
 
 def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
-    from oh_my_ruyi import workers
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.runtime import workers
+    from oh_my_ruyi.runtime.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Linux")
 
@@ -251,8 +243,8 @@ def test_flash_worker_adds_dd_progress_on_linux(monkeypatch) -> None:
 
 
 def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
-    from oh_my_ruyi import workers
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.runtime import workers
+    from oh_my_ruyi.runtime.workers import FlashWorker
 
     monkeypatch.setattr(workers.platform, "system", lambda: "Darwin")
 
@@ -264,7 +256,7 @@ def test_flash_worker_does_not_add_dd_progress_on_macos(monkeypatch) -> None:
 
 
 def test_flash_worker_emits_carriage_return_output() -> None:
-    from oh_my_ruyi.workers import FlashWorker
+    from oh_my_ruyi.runtime.workers import FlashWorker
 
     worker = FlashWorker(None, None, {}, {}, set())  # type: ignore[arg-type]
     captured: list[bytes] = []
@@ -287,7 +279,7 @@ def test_flash_worker_emits_carriage_return_output() -> None:
 def test_worker_run_executes_in_worker_thread(qtbot) -> None:
     from PySide6.QtCore import QThread, Signal
 
-    from oh_my_ruyi.workers import _BaseWorker, run_worker_in_thread
+    from oh_my_ruyi.runtime.workers import _BaseWorker, run_worker_in_thread
 
     class ProbeWorker(_BaseWorker):
         finished = Signal(object)  # type: ignore[assignment]

@@ -10,13 +10,13 @@ import pygit2
 from PySide6.QtCore import QProcess
 from PySide6.QtWidgets import QApplication, QDialog
 
-from oh_my_ruyi import repo_manager
-from oh_my_ruyi import repo_manager_tab as repo_manager_tab_module
-from oh_my_ruyi.repo_manager_tab import (
+from oh_my_ruyi.gui import repo_manager_tab as repo_manager_tab_module
+from oh_my_ruyi.gui.repo_manager_tab import (
     RepoManagementTab,
     _RepoSourceDialog,
     _RepoUpdateDialog,
 )
+from oh_my_ruyi.services import repo_manager
 
 
 class _FakeProcess:

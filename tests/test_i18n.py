@@ -8,7 +8,7 @@ import textwrap
 from importlib import resources
 from pathlib import Path
 
-from oh_my_ruyi.i18n import preferred_locales, resolve_locale
+from oh_my_ruyi.runtime.i18n import preferred_locales, resolve_locale
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +24,7 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
         from PySide6.QtCore import QProcessEnvironment
         from PySide6.QtWidgets import QApplication, QDialogButtonBox
 
-        from oh_my_ruyi.i18n import (
+        from oh_my_ruyi.runtime.i18n import (
             active_locale,
             apply_qprocess_locale,
             initialize,
@@ -41,11 +41,11 @@ def _locale_probe(locale: str, root: Path) -> dict[str, object]:
         from ruyi.config import GlobalConfig
         from ruyi.utils.global_mode import EnvGlobalModeProvider
 
-        from oh_my_ruyi.first_use import FirstUseDialog
-        from oh_my_ruyi.main_window import ProvisionMainWindow, _VersionDownloadDialog
-        from oh_my_ruyi.qt_logger import LogEmitter, QtRuyiLogger
-        from oh_my_ruyi.repo_manager_tab import _RepoUpdateDialog
-        from oh_my_ruyi.version_manager import RuyiRelease
+        from oh_my_ruyi.gui.first_use import FirstUseDialog
+        from oh_my_ruyi.gui.main_window import ProvisionMainWindow, _VersionDownloadDialog
+        from oh_my_ruyi.gui.repo_manager_tab import _RepoUpdateDialog
+        from oh_my_ruyi.runtime.qt_logger import LogEmitter, QtRuyiLogger
+        from oh_my_ruyi.services.version_manager import RuyiRelease
 
         root = Path(os.environ["I18N_TEST_ROOT"])
         gm = EnvGlobalModeProvider({}, [])
