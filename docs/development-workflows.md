@@ -43,7 +43,7 @@ never call blocking service functions such as
 The provisioning wizard follows the same boundary through
 `ui/provision_pages.py`: its factory receives callbacks, creates pages, and
 returns a typed widget bundle. Keep provisioning state, invalidation, and
-worker starts in `main_window.py`.
+worker starts in `gui/main_window.py`.
 
 Do not move a wizard page merely because it is long. If a page reads or writes
 many `ProvisionMainWindow` fields, first extract a pure formatter or a helper
@@ -52,11 +52,11 @@ make navigation harder to follow.
 
 ## Adding a Worker
 
-Add a service worker to `worker_services.py` when it only retains operation
-inputs and emits a result; keep the flashing interception in `workers.py`.
-`workers.py` re-exports service workers so existing imports remain valid. Use
-`worker_runtime.start_worker()` through the existing `run_worker_in_thread()`
-wrapper. A worker must:
+Add a service worker to `runtime/worker_services.py` when it only retains
+operation inputs and emits a result; keep the flashing interception in
+`runtime/workers.py`. `runtime/workers.py` re-exports service workers so
+existing imports remain valid. Use `runtime/worker_runtime.start_worker()`
+through the existing `run_worker_in_thread()` wrapper. A worker must:
 
 1. keep all blocking ruyi, filesystem, network, and subprocess work in `run()`;
 2. catch operational exceptions and emit `failed` with a user-facing message;
@@ -84,12 +84,12 @@ the compatibility path has a regression test.
 
 ## Adding an Adapter Function
 
-Use `ruyi_facade.py` for Qt-free provisioning calls. The adapter should mirror
+Use `services/ruyi_facade.py` for Qt-free provisioning calls. The adapter should mirror
 ruyi's API shape and return small dataclasses where the UI needs stable display
 fields. Do not copy metadata rules, package resolution, or strategy algorithms
 into the adapter. If ruyi already exposes the operation, delegate to it.
 
-For repository configuration use `repo_manager.py`; read TOML for ordered
+For repository configuration use `services/repo_manager.py`; read TOML for ordered
 display/validation only and mutate through ruyi's `ConfigEditor`.
 
 ## Adding a Repository Preset
@@ -102,7 +102,7 @@ focused test for ordering, source selection, and removal protection in
 
 ## Adding a Locale String
 
-Use `_()` from `i18n.py`. Dynamic messages are translated when built; static
+Use `_()` from `runtime/i18n.py`. Dynamic messages are translated when built; static
 widget properties can be translated by `translate_widget_tree()`. Keep source
 and catalog placeholder names identical. Never translate paths, URLs, package
 atoms, repository IDs, device names, or command output.
@@ -110,6 +110,19 @@ atoms, repository IDs, device names, or command output.
 Locale initialization is process-wide. Test routing in an isolated subprocess,
 and include both the application catalog and ruyi's required domains before
 enabling a locale. Confirm `locales/zh_CN.json` is inside the wheel.
+
+## Preserving Flat Import Paths
+
+Implementation belongs in the classified package that owns the boundary:
+`gui/`, `services/`, `runtime/`, `core/`, `ui/`, or `processes/`. Root modules
+with the old names are compatibility aliases only. They must contain no
+behavior and must resolve to the canonical module object. This identity is
+intentional: existing callers and tests may monkeypatch a module global through
+the old path, and the patch must affect the moved implementation as well.
+
+When moving a module, search for both ordinary imports and command strings such
+as `python -m oh_my_ruyi.<name>`, add or update the alias, and add an identity
+test before removing any old entry point.
 
 ## Refactoring Checklist
 

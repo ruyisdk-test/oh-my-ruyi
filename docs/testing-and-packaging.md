@@ -74,16 +74,17 @@ signal or a state predicate with a timeout.
 
 ## Wheel And Frozen Builds
 
-Hatchling packages the complete `oh_my_ruyi` package, including `core/`,
+Hatchling packages the complete `oh_my_ruyi` package, including the classified
+implementation packages `gui/`, `services/`, `runtime/`, `core/`,
 `processes/`, `ui/`, and `locales/`. Inspect the wheel after `uv build`:
 
 ```bash
-unzip -l dist/*.whl | rg 'oh_my_ruyi/(core|processes|ui|locales)'
+unzip -l dist/*.whl | rg 'oh_my_ruyi/(gui|services|runtime|core|processes|ui|locales)'
 ```
 
-The flat child wrappers are included because existing command paths remain
-supported. A PyInstaller build must collect package submodules and the ruyi
-package. After building, exercise the child entry points in a disposable
+The root compatibility aliases and flat child wrappers are included because
+existing import and command paths remain supported. A PyInstaller build must
+collect package submodules and the ruyi package. After building, exercise the child entry points in a disposable
 configuration; never point a frozen smoke test at a real activation link or
 block device.
 

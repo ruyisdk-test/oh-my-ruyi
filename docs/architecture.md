@@ -8,14 +8,14 @@ description: every boundary below has a current owner and a known test seam.
 
 ```text
 oh_my_ruyi.__main__
-  -> app.py
-      -> i18n.py
+  -> gui/app.py
+      -> runtime/i18n.py
       -> GlobalConfig + QtRuyiLogger
-      -> main_window.py
-          -> first_use.py / repo_manager_tab.py / about_tab.py
+      -> gui/main_window.py
+          -> gui/first_use.py / gui/repo_manager_tab.py / gui/about_tab.py
           -> ui/{common,version_dialogs,repo_dialogs,first_use_dialog,version_tables,provision_pages,provision_content,storage_rows,wizard_shell,version_manager_panels,repo_page,about_page}.py
-          -> worker_services.py / workers.py -> worker_runtime.py
-          -> host_storage.py / repo_manager.py / ruyi_facade.py / version_manager.py
+          -> runtime/worker_services.py / runtime/workers.py -> runtime/worker_runtime.py
+          -> services/host_storage.py / services/repo_manager.py / services/ruyi_facade.py / services/version_manager.py
           -> QProcess child modules and environment adapter in processes/
 ```
 
@@ -28,8 +28,9 @@ and the boundary checks required before invoking those APIs.
 
 | Path | Responsibility | Must not own |
 | --- | --- | --- |
-| `app.py` | Process startup, locale initialization, `QApplication`, config construction | Feature state or repository mutations |
-| `main_window.py` | Top-level tabs, wizard transitions, version controls, first-use orchestration | Ruyi metadata rules or a second download implementation |
+| `gui/app.py` | Process startup, locale initialization, `QApplication`, config construction | Feature state or repository mutations |
+| `gui/main_window.py` | Top-level tabs, wizard transitions, version controls, first-use orchestration | Ruyi metadata rules or a second download implementation |
+| `gui/about_tab.py`, `gui/first_use.py`, `gui/repo_manager_tab.py` | Feature-specific Qt views and orchestration | Domain rules outside their owning service |
 | `core/state.py` | Mutable provisioning scratch state and invalidation methods | Qt widgets, I/O, network, flashing |
 | `core/first_use_policy.py` | Pure first-launch eligibility predicate and PATH filtering | Dialogs, downloads, activation |
 | `core/formatting.py` | Qt-free byte-size formatting shared by storage and version views | UI state or filesystem access |
@@ -46,43 +47,56 @@ and the boundary checks required before invoking those APIs.
 | `ui/provision_content.py` | Shared entity-list, package-list, and version-selection rendering | Ruyi lookups, wizard state, storage or flashing operations |
 | `ui/storage_rows.py` | Storage target selector and mounted-warning row construction | Disk discovery, fingerprints, mount validation, or flashing |
 | `ui/wizard_shell.py` | Provisioning sidebar, summary, page stack, and navigation construction | Wizard transitions, invalidation, workers, or feature-tab behavior |
-| `worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
-| `workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
-| `worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
-| `host_storage.py` | Disk discovery, topology, mount checks, fingerprints | Qt state or flashing commands |
-| `ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs | Reimplementation of ruyi algorithms |
-| `repo_manager.py` | Ordered TOML display and `ConfigEditor` mutations | A second TOML writer |
-| `version_manager.py` | Release catalog, downloads, activation, PATH and telemetry services | Qt dialogs or widget state |
-| `qt_logger.py`, `rich_output.py` | Rich/ANSI output routing and rendering | Flattening output before the view |
+| `runtime/worker_services.py` | Repository, storage, release, activation, and telemetry QObject workers | Widget mutation or thread ownership outside its worker |
+| `runtime/workers.py` | Flash interception plus compatibility exports for all worker classes | Duplicating service workers or changing their patch seams |
+| `runtime/worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
+| `services/host_storage.py` | Disk discovery, topology, mount checks, fingerprints | Qt state or flashing commands |
+| `services/ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs | Reimplementation of ruyi algorithms |
+| `services/repo_manager.py` | Ordered TOML display and `ConfigEditor` mutations | A second TOML writer |
+| `services/version_manager.py` | Release catalog, downloads, activation, PATH and telemetry services | Qt dialogs or widget state |
+| `runtime/qt_logger.py`, `runtime/rich_output.py` | Rich/ANSI output routing and rendering | Flattening output before the view |
 | `processes/*.py` | Blocking child-process command adapters | Qt objects or GUI state |
 | `processes/environment.py` | Shared locale, Rich terminal, buffering, and telemetry environment mutations | Process lifecycle or business operations |
 
 ## Compatibility Modules
 
 The old flat module names are part of the current test and subprocess surface.
-These files are intentionally thin:
+They are intentionally thin aliases to the classified implementation tree:
 
 ```text
+app.py              -> gui.app
+main_window.py      -> gui.main_window
+about_tab.py        -> gui.about_tab
+first_use.py        -> gui.first_use
+repo_manager_tab.py -> gui.repo_manager_tab
+host_storage.py     -> services.host_storage
+repo_manager.py     -> services.repo_manager
+ruyi_facade.py      -> services.ruyi_facade
+version_manager.py  -> services.version_manager
+i18n.py             -> runtime.i18n
+qt_logger.py        -> runtime.qt_logger
+rich_output.py      -> runtime.rich_output
+worker_runtime.py   -> runtime.worker_runtime
+worker_services.py  -> runtime.worker_services
+workers.py          -> runtime.workers
 state.py            -> core.state.WizardState
 download_child.py   -> processes.download_child.main
 repo_update_child.py -> processes.repo_update_child.main
 repo_news_child.py  -> processes.repo_news_child.main
 ```
 
-They are not alternate implementations. New code should import the package
-path when it owns the feature; external callers may continue using the flat
-path until a release-specific deprecation decision is made. In particular,
-the GUI may keep old `python -m oh_my_ruyi.*` command strings because existing
-installations and tests rely on them. The wrappers forward to the same function
-and do not alter arguments, environment, or exit codes.
+They are not alternate implementations. New code must import from `gui/`,
+`services/`, `runtime/`, `core/`, `ui/`, or `processes/`; external callers may
+continue using the flat path. The aliases return the canonical module object,
+so existing module-global monkeypatch targets still patch the implementation.
+The GUI may keep old `python -m oh_my_ruyi.*` command strings because existing
+installations and tests rely on them. Child wrappers forward to the same
+function and do not alter arguments, environment, or exit codes.
 
-The high-risk service modules (`host_storage.py`, `ruyi_facade.py`, and
-`version_manager.py`) remain at their established paths for now. Their tests
-monkeypatch module globals such as platform probes and ruyi classes; moving
-them without a deliberate compatibility adapter would change the patch target
-and could silently weaken safety checks. They are already coherent service
-boundaries, so a future move must be driven by a concrete caller and a focused
-regression test.
+The high-risk service modules now live under `services/`, but their former flat
+paths are module aliases. Their tests monkeypatch module globals such as
+platform probes and ruyi classes; the alias identity keeps those patch targets
+unchanged while the implementation is physically classified.
 
 ## State Ownership
 
@@ -111,7 +125,7 @@ that was calculated for different inputs.
 
 ## Main-Window Regions
 
-`main_window.py` remains a large coordinator because it owns all cross-feature
+`gui/main_window.py` remains a large coordinator because it owns all cross-feature
 transitions. Its methods are grouped by responsibility:
 
 1. Construction and close/cancellation policy.
@@ -126,15 +140,15 @@ The extraction rule is conservative: a class or function may move when it has a
 small signal/data contract and no hidden access to the window's mutable state.
 The version download, repository source/update, first-use dialog, and
 provisioning page factory meet that rule. The service workers meet it because
-they only retain operation inputs and emit results; `workers.py` re-exports
+they only retain operation inputs and emit results; `runtime/workers.py` re-exports
 their original names for callers and tests. The page factory returns the
 widgets that the coordinator updates later; it does not move the wizard state
-machine out of `main_window.py`.
+machine out of `gui/main_window.py`.
 
 ## Worker Lifecycle
 
 Workers are `QObject` instances with a `run()` slot and result/failure signals.
-`worker_runtime.start_worker()` performs the only supported startup sequence:
+`runtime/worker_runtime.start_worker()` performs the only supported startup sequence:
 
 1. Create a fresh `QThread`.
 2. Move the worker to that thread.
@@ -142,7 +156,7 @@ Workers are `QObject` instances with a `run()` slot and result/failure signals.
 4. Start the thread.
 
 The owning Qt object stores both references and cleans them after the matching
-operation completes. `worker_runtime.stop_thread()` applies the established
+operation completes. `runtime/worker_runtime.stop_thread()` applies the established
 quit-and-wait cleanup contract. The worker itself never edits widgets.
 
 Package downloads, repository updates, and repository news use QProcess child

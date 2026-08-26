@@ -32,44 +32,47 @@ Before a general change, read:
 
 Use this map to find the owning boundary:
 
-- Application bootstrap and locale initialization: `oh_my_ruyi/app.py`.
+- Application bootstrap and locale initialization: `oh_my_ruyi/gui/app.py`;
+  root `oh_my_ruyi/app.py` is a compatibility alias.
 - Qt-free shared formatting helpers: `oh_my_ruyi/core/formatting.py`.
 - Top-level tabs, version UI, and provisioning state machine:
-  `oh_my_ruyi/main_window.py`.
+  `oh_my_ruyi/gui/main_window.py`; root `oh_my_ruyi/main_window.py` is a
+  compatibility alias.
 - Reusable Qt helpers, common table policy, dialogs, version/repository table
   rendering, provisioning/version-manager/repository/About page construction,
   shared provisioning content/storage-row/wizard-shell rendering, and theme
   generation:
   `oh_my_ruyi/ui/`.
 - First-use eligibility policy: `oh_my_ruyi/core/first_use_policy.py`; setup
-  step/status UI: `oh_my_ruyi/ui/first_use_dialog.py`; `first_use.py` keeps
-  the policy and dialog compatibility exports.
+  step/status UI: `oh_my_ruyi/ui/first_use_dialog.py`; `gui/first_use.py`
+  keeps the policy and dialog compatibility exports.
 - Mutable provisioning selections and invalidation: `oh_my_ruyi/core/state.py`;
   `oh_my_ruyi/state.py` is a compatibility import.
 - Immutable repository/source preset data: `oh_my_ruyi/core/repo_presets.py`;
   `oh_my_ruyi/repo_presets.py` is a compatibility import.
-- Qt-free ruyi provisioning boundary: `oh_my_ruyi/ruyi_facade.py`.
+- Qt-free ruyi provisioning boundary: `oh_my_ruyi/services/ruyi_facade.py`;
+  root `ruyi_facade.py` is a compatibility alias.
 - Service QThread workers for repository, storage, release, and telemetry:
-  `oh_my_ruyi/worker_services.py`; flashing interception and compatibility
-  worker exports: `oh_my_ruyi/workers.py`.
-- Shared worker thread startup and cleanup: `oh_my_ruyi/worker_runtime.py`.
-- Repository model and mutations: `oh_my_ruyi/repo_manager.py`.
-- Repository UI and update/news processes: `oh_my_ruyi/repo_manager_tab.py`,
+  `oh_my_ruyi/runtime/worker_services.py`; flashing interception and
+  compatibility worker exports: `oh_my_ruyi/runtime/workers.py`.
+- Shared worker thread startup and cleanup: `oh_my_ruyi/runtime/worker_runtime.py`.
+- Repository model and mutations: `oh_my_ruyi/services/repo_manager.py`.
+- Repository UI and update/news processes: `oh_my_ruyi/gui/repo_manager_tab.py`,
   `oh_my_ruyi/processes/repo_update_child.py`, and
   `oh_my_ruyi/processes/repo_news_child.py`.
 - Package download child process: `oh_my_ruyi/processes/download_child.py`.
   The flat child modules remain compatibility entry points for existing
   `python -m` commands.
 - Release discovery, downloads, activation, PATH state, and telemetry:
-  `oh_my_ruyi/version_manager.py`.
+  `oh_my_ruyi/services/version_manager.py`.
 - Disk discovery, mount topology, and target fingerprints:
-  `oh_my_ruyi/host_storage.py`.
-- Rich and ruyi output routing: `oh_my_ruyi/qt_logger.py` and
-  `oh_my_ruyi/rich_output.py`.
+  `oh_my_ruyi/services/host_storage.py`.
+- Rich and ruyi output routing: `oh_my_ruyi/runtime/qt_logger.py` and
+  `oh_my_ruyi/runtime/rich_output.py`.
 - Shared QProcess locale/output environment configuration:
   `oh_my_ruyi/processes/environment.py`; process ownership and cancellation
   remain in the owning tab or window.
-- Locale routing and translation helpers: `oh_my_ruyi/i18n.py` and
+- Locale routing and translation helpers: `oh_my_ruyi/runtime/i18n.py` and
   `oh_my_ruyi/locales/zh_CN.json`.
 - Tests: `tests/test_<owning_module>.py`; cross-window flows are mainly in
   `tests/test_main_window_interactions.py` and construction/rendering coverage
@@ -77,16 +80,25 @@ Use this map to find the owning boundary:
 
 ## Architecture Contracts
 
+- New implementation code belongs under the classified packages: `gui/` for
+  Qt application orchestration, `services/` for ruyi/domain services, `runtime/`
+  for logging/locale/workers, `core/` for pure policies/state, `ui/` for
+  reusable presentation, and `processes/` for child commands.
+- Root modules that mirror those names are compatibility aliases only. Do not
+  add implementation logic to them or import them from new code; aliases must
+  resolve to the canonical module object so existing monkeypatch targets stay
+  valid.
+
 - Do not run repository I/O, downloads, disk discovery, package work, telemetry
   setup, or flashing on the Qt UI thread. Follow the existing QObject/QThread
   or child-process pattern for the owning feature.
 - Workers emit results or failures. UI state and widget mutation stay on the Qt
-  thread. Use `worker_runtime.py` through `run_worker_in_thread()` and preserve
+  thread. Use `runtime/worker_runtime.py` through `run_worker_in_thread()` and preserve
   thread ownership, signal cleanup, cancellation, and process termination.
-- `main_window.py` owns provisioning transitions. Use `WizardState` methods in
+- `gui/main_window.py` owns provisioning transitions. Use `WizardState` methods in
   `core/state.py` for atomic invalidation; stale prepared or storage state must
   not survive changed inputs.
-- `ruyi_facade.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
+- `services/ruyi_facade.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
   without becoming a second implementation of ruyi.
 - Repository TOML may be parsed for ordered display and validation, but all
   mutations go through ruyi's `ConfigEditor`. Do not introduce another writer.
@@ -123,7 +135,7 @@ Use this map to find the owning boundary:
 
 ## Localization Contract
 
-- Use gettext-style `_()` from `oh_my_ruyi.i18n`; there is no application
+- Use gettext-style `_()` from `oh_my_ruyi.runtime.i18n`; there is no application
   `tr()` helper.
 - Locale selection occurs once at process startup. Resolution uses `LANGUAGE`,
   `LC_ALL`, `LC_MESSAGES`, then `LANG`.

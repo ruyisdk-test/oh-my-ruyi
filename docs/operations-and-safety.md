@@ -24,7 +24,7 @@ discover -> display mounted state -> user selects path
          -> revalidate again inside FlashWorker before each dd spawn
 ```
 
-`host_storage.py` owns platform-specific discovery. Linux uses `/sys/block`,
+`services/host_storage.py` owns platform-specific discovery. Linux uses `/sys/block`,
 `/dev`, and ruyi's mount parser; holder relationships are followed for
 device-mapper, LUKS, LVM, RAID, and other stacked devices. macOS uses
 `diskutil` plist data and raw whole-disk paths. Discovery failure fails closed;
@@ -77,7 +77,7 @@ and About transition.
 
 ## Repository Mutations
 
-`repo_manager.py` may parse TOML to preserve order and validate display state,
+`services/repo_manager.py` may parse TOML to preserve order and validate display state,
 but every mutation uses ruyi's `ConfigEditor`. The built-in `ruyisdk` entry is
 first and cannot be removed. Repository update/news operations run in child
 processes and are cancellable as process groups.
