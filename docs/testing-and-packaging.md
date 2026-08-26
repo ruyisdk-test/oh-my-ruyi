@@ -84,10 +84,29 @@ unzip -l dist/*.whl | rg 'oh_my_ruyi/(gui|services|runtime|core|processes|ui|loc
 
 The package root contains only the package entry files. Child process modules
 are canonical package submodules. A PyInstaller build must collect package
-submodules and the ruyi package. After building, exercise the child entry
-points in a disposable
-configuration; never point a frozen smoke test at a real activation link or
-block device.
+submodules and the ruyi package. The release build uses the checked-in spec:
+
+```bash
+uv run --locked --with pyinstaller pyinstaller --clean \
+  oh-my-ruyi.spec
+```
+
+The spec sets the project path, collects application resources, includes every
+`oh_my_ruyi.processes` child selected by the frozen dispatcher, and explicitly
+includes `_cffi_backend`, which is required by pygit2/cffi and is not reliably
+inferred from dynamic ruyi imports. After building, exercise a child entry
+point with invalid arguments and query ruyi in a disposable configuration;
+never point a frozen smoke test at a real activation link or block device:
+
+```bash
+QT_QPA_PLATFORM=offscreen ./dist/oh-my-ruyi \
+  -m oh_my_ruyi.processes.repo_update_child --help
+QT_QPA_PLATFORM=offscreen ./dist/oh-my-ruyi -m ruyi version
+```
+
+The first command should produce the child usage error rather than opening a
+second GUI; the second should produce a version report or a normal ruyi
+configuration error, not a recursive GUI launch or import error.
 
 ## Failure Triage
 

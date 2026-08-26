@@ -82,11 +82,7 @@ jobs:
         run: |
           uv run --locked --with pyinstaller pyinstaller \
             --clean \
-            --onefile \
-            --name oh-my-ruyi \
-            --collect-data oh_my_ruyi \
-            --collect-all ruyi \
-            oh_my_ruyi/__main__.py
+            oh-my-ruyi.spec
 
       - name: Name executable
         shell: bash

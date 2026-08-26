@@ -72,6 +72,22 @@ All implementation modules live under `gui/`, `services/`, `runtime/`,
 paths directly. Child process modules are internal QProcess targets, not
 additional public command entry points.
 
+## Frozen Entry
+
+PyInstaller uses `oh_my_ruyi/__main__.py` as the application script. In a
+frozen binary, `sys.executable` is the GUI executable itself, so the normal
+QProcess arguments for a child module cannot be handed to a Python interpreter.
+`_run_embedded_command()` dispatches those internal commands in-process:
+
+- names in `_CHILD_MODULES` import and call the corresponding `processes/`
+  entry point with its remaining arguments;
+- `-m ruyi` imports `ruyi.__main__` and calls `entrypoint` with `sys.argv[0]`
+  set to `ruyi`, preserving ruyi's command-line mode detection;
+- unknown `-m` arguments fall through to normal GUI startup.
+
+Every new child process must be registered in `_CHILD_MODULES`, collected by
+`oh-my-ruyi.spec`, and covered by the packaging tests and a frozen smoke check.
+
 ## State Ownership
 
 `WizardState` is a mutable, per-window scratchpad. It is not persistent user

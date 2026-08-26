@@ -196,6 +196,17 @@ QT_QPA_PLATFORM=offscreen uv run --locked python -m pytest -q tests/test_i18n.py
 For storage or flashing changes, run at least the storage tests and the relevant
 main-window interaction tests before the full suite.
 
+For release binaries, validate the checked-in PyInstaller spec and its frozen
+child-process dispatcher:
+
+```bash
+uv run --locked --with pyinstaller pyinstaller --clean \
+  oh-my-ruyi.spec
+```
+
+The frozen executable must dispatch internal `-m oh_my_ruyi.processes.*` and
+`-m ruyi` commands in-process instead of recursively opening another GUI.
+
 ## Keeping This File Current
 
 Update `AGENTS.md` in the same change when a durable architecture boundary,

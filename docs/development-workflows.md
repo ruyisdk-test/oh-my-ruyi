@@ -78,6 +78,20 @@ the correct ruyi logger/config, perform exactly one operation, and return its
 integer exit code.
 
 The parent invokes the canonical `oh_my_ruyi.processes.<name>` module directly.
+These are internal QProcess commands, not separate public application entry
+points. When the application is frozen, `oh_my_ruyi.__main__` dispatches the
+same names in-process.
+
+When adding a child:
+
+1. Add the module under `processes/`.
+2. Use `configure_qprocess_environment()` on the Qt side.
+3. Register its fully qualified name in `__main__._CHILD_MODULES`.
+4. The shared `oh-my-ruyi.spec` collects all `oh_my_ruyi.processes`
+   submodules for the frozen dispatcher.
+5. Add normal-interpreter and frozen-dispatch tests.
+6. Check process identity in the parent before consuming late output/results.
+
 The package root must not gain a wrapper merely to mirror a moved file.
 
 ## Adding an Adapter Function
