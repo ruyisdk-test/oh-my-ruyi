@@ -398,13 +398,25 @@ Use `pytest-qt` for widget interactions and asynchronous signals. Keep network,
 filesystem, privilege, and destructive-command boundaries mocked unless the test
 is explicitly an integration test.
 
+The locked suite alone does not prove compatibility with a newer `ruyi` release
+inside the declared dependency range. Run `tests/test_ruyi_compatibility.py`
+against the candidate version when changing that range or evaluating an
+upgrade. It deliberately keeps ruyi's provisioning and installation APIs real,
+and drives the installed first-use telemetry CLI in an isolated pseudo-terminal.
+The fixtures provide in-memory metadata and an empty telemetry endpoint, so the
+test performs no download, upload, privilege escalation, or flash operation.
+See [Testing and Packaging](testing-and-packaging.md#ruyi-upgrade-compatibility)
+for the covered contracts and reproduction commands.
+
 ## CI and Packaging
 
-The primary workflow tests Python 3.11 and 3.12 on Linux and macOS. It checks
-the lockfile, Ruff, formatting, compilation, package construction, and the full
-offscreen suite with verbose pytest output and a five-minute test-step timeout.
-The manually triggered Debian workflow validates Debian 12 and 13, system Python,
-offscreen tests, and the xcb plugin under Xvfb.
+The primary workflow tests the locked environment on Python 3.11 and 3.12 on
+Linux and macOS. It checks the lockfile, Ruff, formatting, compilation, package
+construction, and the full offscreen suite with verbose pytest output and a
+five-minute test-step timeout. A separate job upgrades only `ruyi` to the newest
+release accepted by `pyproject.toml` and reruns the full suite on Python 3.12.
+The manually triggered Debian workflow validates Debian 12 and 13, system
+Python, offscreen tests, and the xcb plugin under Xvfb.
 
 The wheel is built by Hatchling through `uv build`. Package files are selected
 from `oh_my_ruyi`, including translation catalogs below `locales/`. After adding
