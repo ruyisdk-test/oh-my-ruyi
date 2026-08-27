@@ -84,6 +84,90 @@ jobs:
             --clean \
             oh-my-ruyi.spec
 
+      - name: Smoke-test executable
+        env:
+          QT_QPA_PLATFORM: offscreen
+          RUYI_TELEMETRY_OPTOUT: "1"
+        run: |
+          uv run --locked python - <<'PY'
+          import os
+          import pathlib
+          import subprocess
+          import tempfile
+
+          binary = pathlib.Path("dist/oh-my-ruyi").resolve()
+
+          def run_checked(arguments, expected_code=0, timeout=30):
+              try:
+                  process = subprocess.run(
+                      [os.fspath(binary), *arguments],
+                      env=os.environ.copy(),
+                      capture_output=True,
+                      text=True,
+                      timeout=timeout,
+                      check=False,
+                  )
+              except subprocess.TimeoutExpired as exc:
+                  raise SystemExit(
+                      f"command timed out after {timeout}s: {arguments}\n"
+                      f"stdout:\n{exc.stdout}\nstderr:\n{exc.stderr}"
+                  ) from exc
+              output = f"stdout:\n{process.stdout}\nstderr:\n{process.stderr}"
+              if "ModuleNotFoundError" in output:
+                  raise SystemExit(
+                      f"frozen child module could not be imported: {arguments}\n{output}"
+                  )
+              if process.returncode != expected_code:
+                  raise SystemExit(
+                      f"unexpected exit code {process.returncode} for {arguments}\n{output}"
+                  )
+
+          run_checked(["-m", "ruyi", "version"])
+          run_checked(
+              ["-m", "oh_my_ruyi.processes.version_activation_child", "--help"]
+          )
+          run_checked(["-m", "oh_my_ruyi.processes.repo_update_child"], 1)
+          run_checked(["-m", "oh_my_ruyi.processes.repo_news_child"], 1)
+
+          with tempfile.TemporaryDirectory() as root:
+              root = pathlib.Path(root)
+              installation = (
+                  root / "state" / "ruyi" / "telemetry" / "installation.json"
+              )
+              installation.parent.mkdir(parents=True)
+              installation.write_text("{}", encoding="utf-8")
+              env = os.environ.copy()
+              env.update(
+                  {
+                      "XDG_CACHE_HOME": os.fspath(root / "cache"),
+                      "XDG_CONFIG_HOME": os.fspath(root / "config"),
+                      "XDG_DATA_HOME": os.fspath(root / "data"),
+                      "XDG_STATE_HOME": os.fspath(root / "state"),
+                  }
+              )
+              process = subprocess.Popen(
+                  [os.fspath(binary)],
+                  env=env,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+                  text=True,
+                  start_new_session=True,
+              )
+              try:
+                  stdout, stderr = process.communicate(timeout=10)
+              except subprocess.TimeoutExpired:
+                  process.terminate()
+                  try:
+                      process.communicate(timeout=5)
+                  except subprocess.TimeoutExpired:
+                      process.kill()
+                      process.communicate()
+              else:
+                  raise SystemExit(
+                      f"executable exited early with code {process.returncode}\n"
+                      f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                  )
+
       - name: Name executable
         shell: bash
         run: |

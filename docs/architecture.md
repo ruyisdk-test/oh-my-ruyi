@@ -149,11 +149,11 @@ The owning Qt object stores both references and cleans them after the matching
 operation completes. `runtime/worker_runtime.stop_thread()` applies the established
 quit-and-wait cleanup contract. The worker itself never edits widgets.
 
-Package downloads, repository updates, and repository news use QProcess child
-commands when independent process-group cancellation is required. The child
-sets its own ruyi environment, performs the blocking call, and returns a normal
-exit code. The parent classifies output by operation identity before displaying
-it.
+Package downloads, repository updates, repository news, and privileged version
+activation use child commands when the operation must be isolated from the Qt
+event loop or run with elevated permissions. Each adapter performs argument
+translation and delegates domain work to its owning service. The parent
+classifies output by operation identity before displaying it.
 
 The parent-side QProcess environment is configured by
 `processes/environment.py`. The owning module still creates the

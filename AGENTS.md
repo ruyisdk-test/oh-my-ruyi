@@ -60,6 +60,9 @@ Use this map to find the owning boundary:
 - Package download child process: `oh_my_ruyi/processes/download_child.py`.
   GUI subprocesses invoke this canonical module directly; it is an internal
   process command, not a separate public application entry point.
+- Privileged version activation child process:
+  `oh_my_ruyi/processes/version_activation_child.py`; it delegates validation
+  and filesystem mutation to `services/version_manager.py`.
 - Release discovery, downloads, activation, PATH state, and telemetry:
   `oh_my_ruyi/services/version_manager.py`.
 - Disk discovery, mount topology, and target fingerprints:
@@ -206,6 +209,8 @@ uv run --locked --with pyinstaller pyinstaller --clean \
 
 The frozen executable must dispatch internal `-m oh_my_ruyi.processes.*` and
 `-m ruyi` commands in-process instead of recursively opening another GUI.
+The tag build also smoke-tests the activation child, repository argument
+validation, and a GUI process in isolated XDG directories.
 
 ## Keeping This File Current
 

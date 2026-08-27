@@ -108,6 +108,11 @@ The first command should produce the child usage error rather than opening a
 second GUI; the second should produce a version report or a normal ruyi
 configuration error, not a recursive GUI launch or import error.
 
+The tag workflow runs additional frozen checks before uploading artifacts. It
+checks `-m ruyi version`, the activation child, repository child argument
+validation, and a GUI process that remains alive for the smoke interval. A
+`ModuleNotFoundError` from any dynamic child import fails the workflow.
+
 ## Failure Triage
 
 Classify failures before changing code:

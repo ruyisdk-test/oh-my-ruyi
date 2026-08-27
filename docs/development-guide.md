@@ -175,8 +175,10 @@ child processes:
 - `processes/download_child.py` runs package download and installation.
 - `processes/repo_update_child.py` runs one repository update.
 - `processes/repo_news_child.py` reads or marks repository news.
-- `services/version_manager.py` runs privileged activation helpers and ruyi's
-  telemetry OOBE in a pseudo-terminal.
+- `processes/version_activation_child.py` runs privileged activation and
+  deactivation helpers through the version service.
+- `services/version_manager.py` runs ruyi's telemetry OOBE in a pseudo-terminal
+  and owns all activation validation and filesystem mutations.
 
 QProcess environments must use `apply_qprocess_locale()`. Standard subprocess
 environments must include `locale_environment()` so GUI and ruyi output do not
@@ -434,7 +436,7 @@ oh_my_ruyi/
     worker_services.py  repository, storage, release, and telemetry workers
     workers.py          flashing interception and worker coordination
   core/                 Qt-free state, policies, formatting, and presets
-  processes/            cancellable package/repository/news subprocesses
+  processes/            cancellable package/repository/activation subprocesses
   ui/                   reusable Qt helpers, pages, and dialogs
   locales/              application translation catalogs
 tests/
