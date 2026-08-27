@@ -119,6 +119,12 @@ devices, device variants, and image combos.
 If the metadata does not contain those entities, the Device page shows the
 available entity types and provides an `Update metadata` action.
 
+Device, variant, and image lists include only package-backed image combos that
+resolve to a usable provisioning strategy on the current computer.
+Documentation-only image entries are hidden, as are variants and devices left
+without a flashable image. On macOS, this also hides every image whose strategy
+requires fastboot.
+
 ## Package Manager Versions
 
 The Version Management tab separates available releases from versions already

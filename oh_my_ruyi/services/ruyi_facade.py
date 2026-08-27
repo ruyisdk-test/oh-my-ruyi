@@ -13,12 +13,13 @@ order and resume after long-running operations.
 from __future__ import annotations
 
 import itertools
+import platform
 import shutil
 import subprocess
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ruyi.config import GlobalConfig
 from ruyi.log import RuyiLogger
@@ -119,6 +120,9 @@ def load_global_config(
 
 PROVISION_REPO_ID = DEFAULT_REPO_ID
 _GIT_PROGRESS_LOCK = threading.RLock()
+_UNSUPPORTED_PROVISION_COMMANDS = {
+    "darwin": frozenset({"fastboot"}),
+}
 
 
 @contextmanager
@@ -190,9 +194,73 @@ def sync_repo(config: GlobalConfig, mr: CompositeRepo) -> CompositeRepo:
     return use_provision_repo(config)
 
 
+def _variant_entities(mr: CompositeRepo, dev: BaseEntity) -> list[BaseEntity]:
+    return list(
+        mr.entity_store.traverse_related_entities(
+            dev,
+            entity_types=["device-variant"],
+        )
+    )
+
+
+def _combo_entities(mr: CompositeRepo, variant: BaseEntity) -> list[BaseEntity]:
+    return list(
+        mr.entity_store.traverse_related_entities(
+            variant,
+            forward_refs=False,
+            reverse_refs=True,
+            entity_types=["image-combo"],
+        )
+    )
+
+
+def _make_combo_support_filter(
+    mr: CompositeRepo,
+) -> Callable[[BaseEntity], bool]:
+    unsupported_commands = _UNSUPPORTED_PROVISION_COMMANDS.get(
+        platform.system().casefold(),
+        frozenset(),
+    )
+    strategy_provider: ProvisionStrategyProvider | None = None
+
+    def is_supported(combo: BaseEntity) -> bool:
+        nonlocal strategy_provider
+        atoms = combo_package_atoms(combo)
+        if not atoms:
+            return False
+
+        try:
+            if strategy_provider is None:
+                strategy_provider = ProvisionStrategyProvider(mr)
+            for atom in atoms:
+                strategy = get_pkg_provision_strategy(strategy_provider, mr, atom)
+                if not unsupported_commands.isdisjoint(strategy.need_cmd):
+                    return False
+        except (AssertionError, KeyError, RuntimeError, ValueError):
+            return False
+        return True
+
+    return is_supported
+
+
+def has_device_entities(mr: CompositeRepo) -> bool:
+    """Return whether the metadata contains any unfiltered device entities."""
+    return next(iter(mr.entity_store.iter_entities("device")), None) is not None
+
+
 def list_devices(mr: CompositeRepo) -> list[DeviceChoice]:
-    """Enumerate all devices the wizard knows about, sorted by display name."""
+    """Enumerate devices with a host-supported, package-backed image."""
     entities = list(mr.entity_store.iter_entities("device"))
+    is_supported = _make_combo_support_filter(mr)
+    entities = [
+        dev
+        for dev in entities
+        if any(
+            is_supported(combo)
+            for variant in _variant_entities(mr, dev)
+            for combo in _combo_entities(mr, variant)
+        )
+    ]
     entities.sort(key=lambda x: x.display_name or x.id)
     return [
         DeviceChoice(
@@ -317,13 +385,13 @@ def is_package_version_customization_possible(
 
 
 def list_variants(mr: CompositeRepo, dev: BaseEntity) -> list[VariantChoice]:
-    """Enumerate variants of the given device, sorted by ``variant_name``."""
-    variants = list(
-        mr.entity_store.traverse_related_entities(
-            dev,
-            entity_types=["device-variant"],
-        )
-    )
+    """Enumerate variants with a host-supported, package-backed image."""
+    is_supported = _make_combo_support_filter(mr)
+    variants = [
+        variant
+        for variant in _variant_entities(mr, dev)
+        if any(is_supported(combo) for combo in _combo_entities(mr, variant))
+    ]
     variants.sort(key=lambda x: x.data.get("variant_name", x.id))
 
     def display_name(v: BaseEntity) -> str:
@@ -337,15 +405,9 @@ def list_variants(mr: CompositeRepo, dev: BaseEntity) -> list[VariantChoice]:
 
 
 def list_combos(mr: CompositeRepo, variant: BaseEntity) -> list[ComboChoice]:
-    """Enumerate image combos supported by the given variant."""
-    combos = list(
-        mr.entity_store.traverse_related_entities(
-            variant,
-            forward_refs=False,
-            reverse_refs=True,
-            entity_types=["image-combo"],
-        )
-    )
+    """Enumerate package-backed image combos supported on the current host."""
+    is_supported = _make_combo_support_filter(mr)
+    combos = [combo for combo in _combo_entities(mr, variant) if is_supported(combo)]
     combos.sort(key=lambda x: x.display_name or x.id)
     return [
         ComboChoice(

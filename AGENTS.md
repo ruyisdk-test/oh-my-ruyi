@@ -99,6 +99,9 @@ Use this map to find the owning boundary:
   not survive changed inputs.
 - `services/ruyi_facade.py` stays free of Qt imports. It mirrors ruyi's provisioning APIs
   without becoming a second implementation of ruyi.
+- Keep provisioning capability filtering in `services/ruyi_facade.py`: hide
+  image combos without package atoms, hide macOS strategies requiring fastboot,
+  and omit variants or devices left without a supported image.
 - Repository TOML may be parsed for ordered display and validation, but all
   mutations go through ruyi's `ConfigEditor`. Do not introduce another writer.
 - Keep the built-in `ruyisdk` repository first and non-removable. Preset IDs and

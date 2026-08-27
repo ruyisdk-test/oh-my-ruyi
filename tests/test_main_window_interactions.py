@@ -420,6 +420,7 @@ def test_empty_device_repo_uses_detail_view_not_status_label(
 ) -> None:
     window.state.mr = object()  # type: ignore[assignment]
     monkeypatch.setattr(ruyi_facade, "list_devices", lambda _mr: [])
+    monkeypatch.setattr(ruyi_facade, "has_device_entities", lambda _mr: False)
     monkeypatch.setattr(ruyi_facade, "list_entity_types", lambda _mr: ["package"])
 
     window._populate_devices()
@@ -429,6 +430,28 @@ def test_empty_device_repo_uses_detail_view_not_status_label(
     )
     assert "Available entity types: package" not in window._device_status.text()
     assert "Available entity types: package" in window._device_details.toPlainText()
+
+
+def test_filtered_device_repo_reports_no_flashable_images(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    window.state.mr = object()  # type: ignore[assignment]
+    monkeypatch.setattr(ruyi_facade, "list_devices", lambda _mr: [])
+    monkeypatch.setattr(ruyi_facade, "has_device_entities", lambda _mr: True)
+
+    window._populate_devices()
+
+    assert (
+        window._device_status.text()
+        == "No flashable device images are available on this computer."
+    )
+    assert "Documentation-only image entries are hidden" in (
+        window._device_details.toPlainText()
+    )
+    assert window._device_list.item(0).text() == (
+        "No flashable devices are available on this computer."
+    )
 
 
 def test_provision_update_waits_for_device_tab_switch(

@@ -241,6 +241,12 @@ page:
 8. Run the strategy through `FlashWorker`, forwarding plugin prompts to Qt.
 9. Display the translated metadata post-install message and final status.
 
+Before presenting the selection hierarchy, `services/ruyi_facade.py` removes
+documentation-only image combos with no package atoms and combos whose resolved
+strategy is unsupported on the current host. macOS rejects every strategy that
+requires `fastboot`. A variant or device is shown only when at least one
+supported combo remains below it; widgets do not duplicate this policy.
+
 `WizardState` is invalidated when the user moves back to an earlier step. New
 state must not survive if its inputs have changed.
 

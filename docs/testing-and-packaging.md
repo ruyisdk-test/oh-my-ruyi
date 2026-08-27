@@ -18,7 +18,8 @@ disk.
 | `test_version_manager.py` | Release parsing, downloads, activation, paths, telemetry |
 | `test_repo_manager.py` | Config parsing, presets, `ConfigEditor` mutations |
 | `test_repo_manager_tab.py` | Repository dialogs, QProcess cancellation and news |
-| `test_ruyi_facade_repo.py` | Qt-free ruyi boundary and display adapters |
+| `test_ruyi_facade_repo.py` | Qt-free repository selection and synchronization boundary |
+| `test_ruyi_facade_provisioning.py` | Host-supported image, variant, and device filtering |
 | `test_main_window_interactions.py` | Cross-step state, first-use reuse, storage and flash safeguards |
 
 New pure policy tests belong beside their owner. New reusable Qt widgets need

@@ -220,4 +220,8 @@ def test_translation_catalog_is_a_packaged_resource() -> None:
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
 
     assert catalog["About"] == "关于"
+    assert (
+        catalog["No flashable device images are available on this computer."]
+        == "此计算机上没有可刷写的设备镜像。"
+    )
     assert catalog["Version for {package}"] == "{package} 的版本"

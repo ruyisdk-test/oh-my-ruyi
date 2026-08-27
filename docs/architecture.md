@@ -51,7 +51,7 @@ and the boundary checks required before invoking those APIs.
 | `runtime/workers.py` | Flash interception and worker coordination | Duplicating service workers or changing their patch seams |
 | `runtime/worker_runtime.py` | Queued worker start and shared thread cleanup | Business operations |
 | `services/host_storage.py` | Disk discovery, topology, mount checks, fingerprints | Qt state or flashing commands |
-| `services/ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs | Reimplementation of ruyi algorithms |
+| `services/ruyi_facade.py` | Qt-free calls into ruyi provisioning APIs and host-capability filtering for device choices | Reimplementation of ruyi algorithms |
 | `services/repo_manager.py` | Ordered TOML display and `ConfigEditor` mutations | A second TOML writer |
 | `services/version_manager.py` | Release catalog, downloads, activation, PATH and telemetry services | Qt dialogs or widget state |
 | `runtime/qt_logger.py`, `runtime/rich_output.py` | Rich/ANSI output routing and rendering | Flattening output before the view |

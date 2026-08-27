@@ -2732,6 +2732,27 @@ class ProvisionMainWindow(QMainWindow):
             self._device_details.hide()
         self._update_repo_btn.setVisible(not devices)
         if not devices:
+            if ruyi_facade.has_device_entities(self.state.mr):
+                self._device_status.setText(
+                    _("No flashable device images are available on this computer.")
+                )
+                self._device_status.setToolTip("")
+                self._device_details.append_plain_status(
+                    _(
+                        "The current metadata contains device entries, but none has "
+                        "a flashable image supported on this computer. Documentation-only "
+                        "image entries are hidden. On macOS, images that require fastboot "
+                        "are also hidden."
+                    )
+                )
+                self._device_details.show()
+                item = QListWidgetItem(
+                    _("No flashable devices are available on this computer.")
+                )
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self._device_list.addItem(item)
+                return
+
             entity_types = ruyi_facade.list_entity_types(self.state.mr)
             types_text = ", ".join(entity_types) if entity_types else _("(none)")
             repo_entries = []

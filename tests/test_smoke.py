@@ -157,6 +157,7 @@ def test_facade_exposes_expected_symbols() -> None:
 
     for name in [
         "list_devices",
+        "has_device_entities",
         "sync_repo",
         "list_variants",
         "list_combos",
