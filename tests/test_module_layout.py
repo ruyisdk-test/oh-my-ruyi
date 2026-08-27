@@ -24,6 +24,7 @@ PACKAGE_ROOT = PROJECT_ROOT / "oh_my_ruyi"
         "oh_my_ruyi.services.repo_manager",
         "oh_my_ruyi.services.ruyi_facade",
         "oh_my_ruyi.services.version_manager",
+        "oh_my_ruyi.processes.version_activation_child",
         "oh_my_ruyi.runtime.i18n",
         "oh_my_ruyi.runtime.qt_logger",
         "oh_my_ruyi.runtime.rich_output",

@@ -51,6 +51,26 @@ def test_frozen_entrypoint_dispatches_embedded_child_module(monkeypatch) -> None
     assert calls == [["pkg/test"]]
 
 
+def test_frozen_entrypoint_dispatches_version_activation_child(monkeypatch) -> None:
+    from oh_my_ruyi import __main__ as entrypoint
+
+    calls: list[list[str]] = []
+    module = SimpleNamespace(main=lambda argv: calls.append(argv) or 7)
+    monkeypatch.setattr(entrypoint.importlib, "import_module", lambda _name: module)
+
+    result = entrypoint._run_embedded_command(
+        [
+            "oh-my-ruyi",
+            "-m",
+            "oh_my_ruyi.processes.version_activation_child",
+            "--help",
+        ]
+    )
+
+    assert result == 7
+    assert calls == [["--help"]]
+
+
 def test_frozen_entrypoint_dispatches_ruyi_with_cli_argv0(monkeypatch) -> None:
     from oh_my_ruyi import __main__ as entrypoint
 

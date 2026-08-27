@@ -10,6 +10,7 @@ _CHILD_MODULES = {
     "oh_my_ruyi.processes.download_child",
     "oh_my_ruyi.processes.repo_news_child",
     "oh_my_ruyi.processes.repo_update_child",
+    "oh_my_ruyi.processes.version_activation_child",
 }
 
 
