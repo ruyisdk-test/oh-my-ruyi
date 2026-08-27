@@ -167,6 +167,7 @@ jobs:
                       f"executable exited early with code {process.returncode}\n"
                       f"stdout:\n{stdout}\nstderr:\n{stderr}"
                   )
+          PY
 
       - name: Name executable
         shell: bash
