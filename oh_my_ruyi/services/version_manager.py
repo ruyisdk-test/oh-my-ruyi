@@ -49,7 +49,10 @@ _ARCH_PLATFORM_KEYS = {
     ("linux", "aarch64"): "linux/aarch64",
     ("linux", "arm64"): "linux/aarch64",
     ("linux", "riscv64"): "linux/riscv64",
-    ("darwin", "arm64"): "linux/macos-arm64",
+    ("darwin", "arm64"): "darwin/aarch64",
+}
+_LEGACY_RELEASE_PLATFORM_KEYS = {
+    "darwin/aarch64": ("linux/macos-arm64",),
 }
 _ELF_ARCHITECTURES = {
     3: "x86",
@@ -284,15 +287,23 @@ def parse_release_catalog(
             raise VersionManagerError(
                 f"invalid release data in channel '{channel_name}'"
             )
-        urls = download_urls.get(platform_key)
-        if (
-            not isinstance(urls, list)
-            or not urls
-            or not all(
-                isinstance(url, str) and url.startswith(("https://", "http://"))
-                for url in urls
-            )
+        urls: object = None
+        for candidate_key in (
+            platform_key,
+            *_LEGACY_RELEASE_PLATFORM_KEYS.get(platform_key, ()),
         ):
+            candidate_urls = download_urls.get(candidate_key)
+            if (
+                isinstance(candidate_urls, list)
+                and candidate_urls
+                and all(
+                    isinstance(url, str) and url.startswith(("https://", "http://"))
+                    for url in candidate_urls
+                )
+            ):
+                urls = candidate_urls
+                break
+        if not isinstance(urls, list):
             continue
         releases.append(
             RuyiRelease(

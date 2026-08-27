@@ -49,7 +49,7 @@ def _release_payload() -> dict:
     }
 
 
-def test_macos_release_catalog_accepts_current_api_platform_key() -> None:
+def test_macos_release_catalog_prefers_corrected_api_platform_key() -> None:
     payload = {
         "channels": {
             "testing": {
@@ -57,8 +57,11 @@ def test_macos_release_catalog_accepts_current_api_platform_key() -> None:
                 "channel": "testing",
                 "release_date": "2026-08-24T15:34:52Z",
                 "download_urls": {
-                    "linux/macos-arm64": [
+                    "darwin/aarch64": [
                         "https://example.test/ruyi-0.52.0-beta.20260824.macos-arm64"
+                    ],
+                    "linux/macos-arm64": [
+                        "https://legacy.example.test/ruyi-0.52.0-beta.20260824.macos-arm64"
                     ],
                     "linux/aarch64": [
                         "https://example.test/ruyi-0.52.0-beta.20260824.arm64"
@@ -76,17 +79,50 @@ def test_macos_release_catalog_accepts_current_api_platform_key() -> None:
         }
     }
 
-    releases = version_manager.parse_release_catalog(payload, "linux/macos-arm64")
+    releases = version_manager.parse_release_catalog(payload, "darwin/aarch64")
 
-    assert [(item.version, item.channel, item.architecture) for item in releases] == [
-        ("0.52.0-beta.20260824", "testing", "macos-arm64"),
+    assert [
+        (item.version, item.channel, item.architecture, item.download_urls)
+        for item in releases
+    ] == [
+        (
+            "0.52.0-beta.20260824",
+            "testing",
+            "aarch64",
+            ("https://example.test/ruyi-0.52.0-beta.20260824.macos-arm64",),
+        ),
     ]
 
 
-def test_macos_arm64_uses_the_api_platform_key() -> None:
+def test_macos_release_catalog_accepts_legacy_static_mirror_key() -> None:
+    payload = {
+        "channels": {
+            "testing": {
+                "version": "0.52.0-beta.20260824",
+                "release_date": "2026-08-24T15:34:52Z",
+                "download_urls": {
+                    "linux/macos-arm64": [
+                        "https://example.test/ruyi-0.52.0-beta.20260824.macos-arm64"
+                    ],
+                },
+            },
+        }
+    }
+
+    releases = version_manager.parse_release_catalog(payload, "darwin/aarch64")
+
+    assert [(item.architecture, item.download_urls) for item in releases] == [
+        (
+            "aarch64",
+            ("https://example.test/ruyi-0.52.0-beta.20260824.macos-arm64",),
+        ),
+    ]
+
+
+def test_macos_arm64_uses_corrected_api_platform_key() -> None:
     assert (
         version_manager.host_platform_key(system="Darwin", machine="arm64")
-        == "linux/macos-arm64"
+        == "darwin/aarch64"
     )
 
 
@@ -202,6 +238,7 @@ def test_custom_release_url_requires_semver_and_arch_suffix() -> None:
         ("amd64", "x86_64", True),
         ("x86_64", "AMD64", True),
         ("linux/aarch64", "arm64", True),
+        ("darwin/aarch64", "arm64", True),
         ("macos-arm64", "aarch64", True),
         ("macos-arm64", "arm64", True),
         ("riscv64", "x86_64", False),

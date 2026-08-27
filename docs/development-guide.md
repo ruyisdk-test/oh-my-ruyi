@@ -274,6 +274,11 @@ Invalid or unavailable responses fall back to:
 https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json
 ```
 
+Apple Silicon uses the canonical API platform key `darwin/aarch64`. The static
+fallback may temporarily contain the former `linux/macos-arm64` key, which the
+parser accepts only as a legacy input and normalizes to `aarch64`. This API key
+is separate from the standalone binary's `.macos-arm64` filename suffix.
+
 Downloaded binaries live under
 `~/.local/share/oh-my-ruyi/versions`. The active version is derived from the
 target of `/usr/local/bin/ruyi`; no duplicate activation state file is kept.
