@@ -65,3 +65,47 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: uv run --locked python -m pytest -vv -ra --tb=short
+
+  ruyi-compatibility:
+    name: Latest compatible ruyi / Ubuntu / Python 3.12
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libdbus-1-3 \
+            libegl1 \
+            libfontconfig1 \
+            libgl1 \
+            libxkbcommon0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Resolve latest compatible ruyi
+        run: uv lock --upgrade-package ruyi --prerelease allow
+
+      - name: Sync compatibility environment
+        run: uv sync --locked --python 3.12 --group dev
+
+      - name: Report tested ruyi version
+        run: >-
+          uv run --locked python -c
+          "import importlib.metadata; print(importlib.metadata.version('ruyi'))"
+
+      - name: Run tests against latest compatible ruyi
+        timeout-minutes: 5
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run --locked python -m pytest -vv -ra --tb=short
