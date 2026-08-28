@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import stat
 import subprocess
@@ -17,6 +18,7 @@ RELEASE_API_URL = "https://api.ruyisdk.cn/releases/latest-pm"
 FALLBACK_RELEASES_URL = (
     "https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json"
 )
+INSTALLER_URL = "https://ruyisdk.org/install.sh"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -71,7 +73,7 @@ def _make_fake_tools(tmp_path: Path) -> Path:
         output = None
         for option in ("-o", "--output"):
             if option in arguments:
-                output = Path(arguments[arguments.index(option) + 1])
+                output = arguments[arguments.index(option) + 1]
                 break
         log = os.environ.get("FAKE_CURL_LOG")
         if log:
@@ -82,9 +84,10 @@ def _make_fake_tools(tmp_path: Path) -> Path:
         if source is None:
             raise SystemExit("unexpected URL: " + url)
         content = Path(source).read_bytes()
-        if output is None:
+        if output is None or output == "-":
             sys.stdout.buffer.write(content)
         else:
+            output = Path(output)
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(content)
         """,
@@ -108,12 +111,10 @@ def _make_fake_tools(tmp_path: Path) -> Path:
     return tool_dir
 
 
-def _release_payload(
-    version: str, platform_urls: dict[str, list[str]], channel: str = "stable"
-) -> dict:
+def _release_payload(version: str, platform_urls: dict[str, list[str]]) -> dict:
     return {
         "channels": {
-            channel: {
+            "stable": {
                 "version": version,
                 "download_urls": platform_urls,
             }
@@ -135,6 +136,8 @@ def _run_installer(
     machine: str = "x86_64",
     ping_latencies: dict[str, float] | None = None,
     user_id: int = 1000,
+    script_path: Path | None = None,
+    interactive_answers: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     tool_dir = _make_fake_tools(tmp_path)
     temp_dir = tmp_path / "installer-tmp"
@@ -160,13 +163,21 @@ def _run_installer(
             "TMPDIR": str(temp_dir),
         }
     )
+    command = [str(script_path or SCRIPT), *args]
+    if interactive_answers is not None:
+        terminal = shutil.which("script")
+        if sys.platform != "linux" or terminal is None:
+            pytest.skip("interactive installer test requires util-linux script")
+        command = [terminal, "-qefc", shlex.join(command), "/dev/null"]
     return subprocess.run(
-        [str(SCRIPT), *args],
+        command,
         cwd=SCRIPT.parent,
         env=env,
         text=True,
+        input=interactive_answers,
         capture_output=True,
         check=False,
+        timeout=10,
     )
 
 
@@ -251,6 +262,9 @@ def test_help_runs_in_supported_shells(shell_name: str) -> None:
     assert "--version" not in result.stdout
     assert "--sha256" not in result.stdout
     assert "--release-api-url" not in result.stdout
+    assert "--channel" not in result.stdout
+    assert "RUYI_CHANNEL" not in result.stdout
+    assert "--upgrade [HELPER]" not in result.stdout
 
 
 def test_download_commands_show_progress_without_custom_timeouts() -> None:
@@ -343,6 +357,23 @@ def _build_version_binary(tmp_path: Path, version: str) -> Path:
     return binary
 
 
+def _prepare_upgrade_tree(tmp_path: Path, current_version: str) -> tuple[Path, Path]:
+    install_dir = tmp_path / "managed"
+    install_dir.mkdir()
+    current_dir = tmp_path / "current"
+    current_dir.mkdir()
+    current_binary = _build_version_binary(current_dir, current_version)
+    if current_binary.read_bytes()[:4] != b"\x7fELF":
+        pytest.skip("ruyi-upgrade only supports ELF binaries")
+    target = install_dir / "ruyi"
+    shutil.copy2(current_binary, target)
+    target.chmod(0o755)
+    helper = install_dir / "ruyi-upgrade"
+    shutil.copy2(SCRIPT, helper)
+    helper.chmod(0o755)
+    return helper, target
+
+
 def test_api_urls_are_used_in_order_and_bad_download_is_skipped(tmp_path: Path) -> None:
     version = "1.2.3"
     binary = _build_version_binary(tmp_path, version)
@@ -375,6 +406,202 @@ def test_api_urls_are_used_in_order_and_bad_download_is_skipped(tmp_path: Path) 
         github_url,
     ]
     assert "Ruyi 1.2.3" in result.stdout
+
+
+@pytest.mark.parametrize("script_source", ["local", "download"])
+def test_install_can_store_an_upgrade_helper(
+    tmp_path: Path, script_source: str
+) -> None:
+    version = "1.2.3"
+    binary = _build_version_binary(tmp_path, version)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+    install_dir = tmp_path / "bin"
+    installer = SCRIPT
+    installer_source = tmp_path / "unexpected-installer-download"
+    if script_source == "download":
+        installer = tmp_path / "pipe-runner"
+        _write_executable(
+            installer,
+            f'#!/bin/sh\nexec sh -c {shlex.quote(SCRIPT.read_text(encoding="utf-8"))} sh "$@"\n',
+        )
+        installer_source = SCRIPT
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(install_dir)],
+        {
+            RELEASE_API_URL: release_file,
+            mirror_url: binary,
+            INSTALLER_URL: installer_source,
+        },
+        script_path=installer,
+        interactive_answers="y\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (install_dir / "ruyi").exists()
+    helper = install_dir / "ruyi-upgrade"
+    assert helper.read_bytes() == SCRIPT.read_bytes()
+    curl_log = (tmp_path / "curl.log").read_text(encoding="utf-8")
+    assert (INSTALLER_URL in curl_log) == (script_source == "download")
+
+
+@pytest.mark.parametrize("entry_point", ["helper", "option"])
+def test_ruyi_upgrade_entry_points_update_without_recursing(
+    tmp_path: Path, entry_point: str
+) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3")
+    args: list[str] = []
+    if entry_point == "option":
+        helper = helper.with_name("upgrade-helper")
+        helper.with_name("ruyi-upgrade").rename(helper)
+        args = ["--upgrade"]
+    helper_content = helper.read_bytes()
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    new_binary = _build_version_binary(new_dir, "1.3.0")
+    mirror_url, github_url = _urls("1.3.0", "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload("1.3.0", {"linux/x86_64": [mirror_url, github_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        args,
+        {
+            RELEASE_API_URL: release_file,
+            mirror_url: new_binary,
+        },
+        script_path=helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == new_binary.read_bytes()
+    assert helper.read_bytes() == helper_content
+    assert "Ruyi 1.3.0 was installed successfully" in result.stdout
+
+
+def test_ruyi_upgrade_uses_stable_for_prerelease_current_binary(
+    tmp_path: Path,
+) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3-beta.1")
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    new_binary = _build_version_binary(new_dir, "1.2.3")
+    mirror_url, _ = _urls("1.2.3", "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload("1.2.3", {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        [],
+        {
+            RELEASE_API_URL: release_file,
+            mirror_url: new_binary,
+        },
+        script_path=helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == new_binary.read_bytes()
+
+
+@pytest.mark.parametrize("new_version", ["1.2.3", "1.2.2"])
+def test_ruyi_upgrade_skips_when_api_version_is_not_newer(
+    tmp_path: Path, new_version: str
+) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3")
+    original = target.read_bytes()
+    mirror_url, _ = _urls(new_version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(new_version, {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        [],
+        {RELEASE_API_URL: release_file},
+        script_path=helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == original
+    assert "no upgrade is needed" in result.stdout
+    assert (tmp_path / "curl.log").read_text(encoding="utf-8").splitlines() == [
+        RELEASE_API_URL
+    ]
+
+
+def test_ruyi_upgrade_requires_an_elf_target_before_fetching_metadata(
+    tmp_path: Path,
+) -> None:
+    install_dir = tmp_path / "managed"
+    install_dir.mkdir()
+    target = install_dir / "ruyi"
+    target.write_bytes(b"not an ELF binary")
+    helper = install_dir / "ruyi-upgrade"
+    shutil.copy2(SCRIPT, helper)
+    helper.chmod(0o755)
+
+    result = _run_installer(
+        tmp_path,
+        [],
+        {},
+        script_path=helper,
+    )
+
+    assert result.returncode != 0
+    assert "upgrade target is not an ELF executable" in result.stderr
+    assert not (tmp_path / "curl.log").exists()
+
+
+def test_upgrade_flag_with_any_script_name_ignores_install_directory(
+    tmp_path: Path,
+) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3")
+    explicit_helper = helper.with_name("upgrade-helper")
+    helper.rename(explicit_helper)
+    explicit_helper.chmod(0o755)
+    mirror_url, _ = _urls("1.3.0", "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload("1.3.0", {"linux/x86_64": [mirror_url]}),
+    )
+    other_dir = tmp_path / "other"
+    result = _run_installer(
+        tmp_path,
+        [
+            "--upgrade",
+            "--install-dir",
+            str(other_dir),
+            "--dry-run",
+        ],
+        {RELEASE_API_URL: release_file},
+        script_path=explicit_helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"Install path: {target}" in result.stdout
+    assert str(other_dir) not in result.stdout
+    assert target.exists()
+    assert not other_dir.exists()
+
+
+def test_upgrade_attached_value_is_rejected(
+    tmp_path: Path,
+) -> None:
+    result = _run_installer(tmp_path, ["--upgrade=/tmp/helper"], {})
+
+    assert result.returncode != 0
+    assert "unknown option: --upgrade=/tmp/helper" in result.stderr
 
 
 def test_download_urls_are_sorted_by_ping_latency(tmp_path: Path) -> None:
@@ -463,7 +690,7 @@ def test_untrusted_api_url_is_ignored(tmp_path: Path) -> None:
     assert untrusted_url not in result.stdout
 
 
-def test_legacy_macos_api_platform_key_is_supported(tmp_path: Path) -> None:
+def test_legacy_macos_api_platform_key_is_rejected(tmp_path: Path) -> None:
     version = "1.2.3"
     mirror_url, github_url = _urls(version, "macos-arm64")
     release_file = _write_json(
@@ -473,38 +700,19 @@ def test_legacy_macos_api_platform_key_is_supported(tmp_path: Path) -> None:
     result = _run_installer(
         tmp_path,
         ["--install-dir", str(tmp_path / "bin"), "--dry-run"],
-        {RELEASE_API_URL: release_file},
+        {RELEASE_API_URL: release_file, FALLBACK_RELEASES_URL: release_file},
         system="Darwin",
         machine="arm64",
     )
 
-    assert result.returncode == 0, result.stderr
-    assert "Selected platform: darwin/aarch64" in result.stdout
+    assert result.returncode != 0
+    assert "platform darwin/aarch64 is missing" in result.stderr
+    assert not (tmp_path / "bin").exists()
 
 
-def test_testing_channel_is_selected_from_same_api(tmp_path: Path) -> None:
-    version = "1.2.3-beta.1"
-    mirror_url, github_url = _urls(version, "amd64")
-    release_file = _write_json(
-        tmp_path / "release.json",
-        _release_payload(
-            version,
-            {"linux/x86_64": [mirror_url, github_url]},
-            channel="testing",
-        ),
-    )
-    result = _run_installer(
-        tmp_path,
-        ["--channel", "testing", "--install-dir", str(tmp_path / "bin"), "--dry-run"],
-        {RELEASE_API_URL: release_file},
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "Selected channel: testing" in result.stdout
-    assert f"Selected version: {version}" in result.stdout
-
-
-@pytest.mark.parametrize("option", ["--version", "--sha256", "--release-api-url"])
+@pytest.mark.parametrize(
+    "option", ["--channel", "--version", "--sha256", "--release-api-url"]
+)
 def test_removed_override_options_are_rejected(option: str, tmp_path: Path) -> None:
     result = subprocess.run(
         [str(SCRIPT), option, "value"],
