@@ -56,6 +56,14 @@ def _make_fake_tools(tmp_path: Path) -> Path:
         """
         #!/bin/sh
         printf '%s\n' "$*" >> "$FAKE_SUDO_LOG"
+        if [ "${1:-}" = -u ] && [ "$#" -ge 2 ]; then
+            user=$2
+            shift 2
+            [ "${1:-}" = -H ] && shift
+            FAKE_SUDO_EFFECTIVE_USER=$user
+            export FAKE_SUDO_EFFECTIVE_USER
+            exec "$@"
+        fi
         exit 99
         """,
     )
@@ -136,6 +144,7 @@ def _run_installer(
     machine: str = "x86_64",
     ping_latencies: dict[str, float] | None = None,
     user_id: int = 1000,
+    sudo_user: str | None = None,
     script_path: Path | None = None,
     interactive_answers: str | None = None,
     input_text: str | None = "y\ny\n",
@@ -164,6 +173,9 @@ def _run_installer(
             "TMPDIR": str(temp_dir),
         }
     )
+    if sudo_user is not None:
+        env["SUDO_USER"] = sudo_user
+    env.pop("FAKE_SUDO_EFFECTIVE_USER", None)
     command = [str(script_path or SCRIPT), *args]
     if interactive_answers is not None:
         terminal = shutil.which("script")
@@ -463,13 +475,16 @@ def test_declining_new_target_confirmation_stops_before_metadata_download(
 
 
 def _build_version_binary(
-    tmp_path: Path, version: str, *, requires_root_override: bool = False
+    tmp_path: Path, version: str, *, expected_user: str | None = None
 ) -> Path:
     compiler = shutil.which("cc")
     if compiler is None:
         pytest.skip("a C compiler is required for executable validation")
     source = tmp_path / "ruyi.c"
     binary = tmp_path / "ruyi.fixture"
+    expected_user_literal = (
+        json.dumps(expected_user) if expected_user is not None else "NULL"
+    )
     source.write_text(
         textwrap.dedent(
             f"""
@@ -479,10 +494,13 @@ def _build_version_binary(
 
             int main(int argc, char **argv) {{
                 if (argc == 2 && strcmp(argv[1], "version") == 0) {{
-                    const char *force_allow_root = getenv("RUYI_FORCE_ALLOW_ROOT");
-                    if ({int(requires_root_override)}
-                        && (force_allow_root == NULL || strcmp(force_allow_root, "1") != 0)) {{
-                        return 2;
+                    const char *expected_user = {expected_user_literal};
+                    if (expected_user != NULL) {{
+                        const char *actual_user = getenv("FAKE_SUDO_EFFECTIVE_USER");
+                        if (actual_user == NULL
+                            || strcmp(actual_user, expected_user) != 0) {{
+                            return 2;
+                        }}
                     }}
                     puts("Ruyi {version}");
                     return 0;
@@ -497,9 +515,9 @@ def _build_version_binary(
     return binary
 
 
-def test_version_check_sets_root_override(tmp_path: Path) -> None:
+def test_sudo_version_check_runs_as_invoking_user(tmp_path: Path) -> None:
     version = "1.2.3"
-    binary = _build_version_binary(tmp_path, version, requires_root_override=True)
+    binary = _build_version_binary(tmp_path, version, expected_user="alice")
     mirror_url, _ = _urls(version, "amd64")
     release_file = _write_json(
         tmp_path / "release.json",
@@ -510,21 +528,27 @@ def test_version_check_sets_root_override(tmp_path: Path) -> None:
         tmp_path,
         ["--install-dir", str(tmp_path / "bin")],
         {RELEASE_API_URL: release_file, mirror_url: binary},
+        user_id=0,
+        sudo_user="alice",
     )
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "bin" / "ruyi").read_bytes() == binary.read_bytes()
+    assert "-u alice -H env RUYI_TELEMETRY_OPTOUT=1" in (
+        tmp_path / "sudo.log"
+    ).read_text(encoding="utf-8")
+    assert "RUYI_FORCE_ALLOW_ROOT" not in SCRIPT.read_text(encoding="utf-8")
 
 
 def _prepare_upgrade_tree(
-    tmp_path: Path, current_version: str, *, requires_root_override: bool = False
+    tmp_path: Path, current_version: str, *, expected_user: str | None = None
 ) -> tuple[Path, Path]:
     install_dir = tmp_path / "managed"
     install_dir.mkdir()
     current_dir = tmp_path / "current"
     current_dir.mkdir()
     current_binary = _build_version_binary(
-        current_dir, current_version, requires_root_override=requires_root_override
+        current_dir, current_version, expected_user=expected_user
     )
     if current_binary.read_bytes()[:4] != b"\x7fELF":
         pytest.skip("ruyi-upgrade only supports ELF binaries")
@@ -537,13 +561,11 @@ def _prepare_upgrade_tree(
     return helper, target
 
 
-def test_upgrade_version_check_sets_root_override(tmp_path: Path) -> None:
-    helper, target = _prepare_upgrade_tree(
-        tmp_path, "1.2.3", requires_root_override=True
-    )
+def test_sudo_upgrade_version_checks_run_as_invoking_user(tmp_path: Path) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3", expected_user="alice")
     new_dir = tmp_path / "new"
     new_dir.mkdir()
-    new_binary = _build_version_binary(new_dir, "1.3.0")
+    new_binary = _build_version_binary(new_dir, "1.3.0", expected_user="alice")
     mirror_url, _ = _urls("1.3.0", "amd64")
     release_file = _write_json(
         tmp_path / "release.json",
@@ -555,6 +577,8 @@ def test_upgrade_version_check_sets_root_override(tmp_path: Path) -> None:
         [],
         {RELEASE_API_URL: release_file, mirror_url: new_binary},
         script_path=helper,
+        user_id=0,
+        sudo_user="alice",
     )
 
     assert result.returncode == 0, result.stderr

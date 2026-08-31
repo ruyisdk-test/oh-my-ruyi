@@ -129,6 +129,11 @@ TARGET_FILE=$INSTALL_DIR/$TARGET_NAME
 
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/ruyi-install.XXXXXX") \
   || die "failed to create temporary directory"
+if [ "$(id -u 2>/dev/null)" = 0 ] \
+  && [ -n "${SUDO_USER:-}" ] \
+  && [ "$SUDO_USER" != root ]; then
+  chmod 711 "$TMP_ROOT" || die "failed to prepare the temporary directory"
+fi
 
 trap cleanup 0
 
@@ -212,6 +217,16 @@ is_elf_binary() {
   [ "$(LC_ALL=C od -An -N4 -tx1 "$1" 2>/dev/null | tr -d '[:space:]')" = 7f454c46 ]
 }
 
+run_ruyi() {
+  if [ "$(id -u 2>/dev/null)" = 0 ] \
+    && [ -n "${SUDO_USER:-}" ] \
+    && [ "$SUDO_USER" != root ]; then
+    sudo -u "$SUDO_USER" -H env RUYI_TELEMETRY_OPTOUT=1 "$@"
+  else
+    RUYI_TELEMETRY_OPTOUT=1 "$@"
+  fi
+}
+
 version_is_newer() {
   awk -v newer="$1" -v older="$2" '
     BEGIN {
@@ -227,7 +242,7 @@ version_is_newer() {
 prepare_upgrade() {
   [ "$UPGRADE" -eq 1 ] || return 0
   is_elf_binary "$TARGET_FILE" || die "upgrade target is not an ELF executable: $TARGET_FILE"
-  current_output=$(RUYI_FORCE_ALLOW_ROOT=1 RUYI_TELEMETRY_OPTOUT=1 "$TARGET_FILE" version) \
+  current_output=$(run_ruyi "$TARGET_FILE" version) \
     || die "failed to read the current ruyi version: $TARGET_FILE"
   CURRENT_VERSION=$(printf '%s\n' "$current_output" | awk '$1 == "Ruyi" { print $2; exit }')
   [ -n "$CURRENT_VERSION" ] || die "failed to read the current ruyi version: $TARGET_FILE"
@@ -395,7 +410,7 @@ show_selection() {
 verify_binary() {
   binary_file=$1
   chmod 0755 "$binary_file" || return 1
-  if ! RUYI_FORCE_ALLOW_ROOT=1 RUYI_TELEMETRY_OPTOUT=1 "$binary_file" version > "$VERSION_OUTPUT" 2>&1; then
+  if ! run_ruyi "$binary_file" version > "$VERSION_OUTPUT" 2>&1; then
     warn "downloaded binary failed its version check: $2"
     return 1
   fi
