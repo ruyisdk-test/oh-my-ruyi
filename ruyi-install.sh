@@ -40,7 +40,7 @@ Options:
   -v                     Show the installer version
   --install-dir DIR      Install ruyi into DIR. Default: /usr/local/bin
                          Ignored with --upgrade; its directory is used instead
-  --upgrade              Upgrade the ELF ruyi beside this script
+  --upgrade              Upgrade the ruyi beside this script
   --dry-run              Print the selected download URLs without installing
   -h, --help             Show this help message
 
@@ -213,8 +213,9 @@ warn_if_path_missing() {
   warn "install directory is not in PATH: $INSTALL_DIR"
 }
 
-is_elf_binary() {
-  [ "$(LC_ALL=C od -An -N4 -tx1 "$1" 2>/dev/null | tr -d '[:space:]')" = 7f454c46 ]
+is_supported_binary() {
+  magic=$(LC_ALL=C od -An -N4 -tx1 "$1" 2>/dev/null | tr -d '[:space:]')
+  [ "$magic" = 7f454c46 ] || [ "$magic" = cffaedfe ]
 }
 
 run_ruyi() {
@@ -241,7 +242,8 @@ version_is_newer() {
 
 prepare_upgrade() {
   [ "$UPGRADE" -eq 1 ] || return 0
-  is_elf_binary "$TARGET_FILE" || die "upgrade target is not an ELF executable: $TARGET_FILE"
+  is_supported_binary "$TARGET_FILE" \
+    || die "upgrade target is not an ELF or Mach-O executable: $TARGET_FILE"
   current_output=$(run_ruyi "$TARGET_FILE" version) \
     || die "failed to read the current ruyi version: $TARGET_FILE"
   CURRENT_VERSION=$(printf '%s\n' "$current_output" | awk '$1 == "Ruyi" { print $2; exit }')
@@ -341,8 +343,8 @@ install_binary() {
   run_privileged cp "$source_file" "$STAGED_FILE" || die "failed to stage the ruyi binary"
   run_privileged chmod 0755 "$STAGED_FILE" || die "failed to set installed permissions"
   if [ "$UPGRADE" -eq 1 ]; then
-    is_elf_binary "$target_file" \
-      || die "upgrade target changed and is no longer an ELF executable: $target_file"
+    is_supported_binary "$target_file" \
+      || die "upgrade target changed and is no longer an ELF or Mach-O executable: $target_file"
   fi
   run_privileged mv "$STAGED_FILE" "$target_file" \
     || die "failed to install $target_file"

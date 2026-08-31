@@ -145,11 +145,17 @@ def _run_installer(
     ping_latencies: dict[str, float] | None = None,
     user_id: int = 1000,
     sudo_user: str | None = None,
+    binary_magic: str | None = None,
     script_path: Path | None = None,
     interactive_answers: str | None = None,
     input_text: str | None = "y\ny\n",
 ) -> subprocess.CompletedProcess[str]:
     tool_dir = _make_fake_tools(tmp_path)
+    if binary_magic is not None:
+        _write_executable(
+            tool_dir / "od",
+            f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(binary_magic)}\n",
+        )
     temp_dir = tmp_path / "installer-tmp"
     temp_dir.mkdir(exist_ok=True)
     log_path = tmp_path / "curl.log"
@@ -783,13 +789,38 @@ def test_ruyi_upgrade_skips_when_api_version_is_not_newer(
     ]
 
 
-def test_ruyi_upgrade_requires_an_elf_target_before_fetching_metadata(
+def test_ruyi_upgrade_accepts_macho_target(tmp_path: Path) -> None:
+    helper, target = _prepare_upgrade_tree(tmp_path, "1.2.3")
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    new_binary = _build_version_binary(new_dir, "1.3.0")
+    mirror_url, _ = _urls("1.3.0", "macos-arm64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload("1.3.0", {"darwin/aarch64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        [],
+        {RELEASE_API_URL: release_file, mirror_url: new_binary},
+        system="Darwin",
+        machine="arm64",
+        binary_magic="cf fa ed fe",
+        script_path=helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == new_binary.read_bytes()
+
+
+def test_ruyi_upgrade_requires_a_supported_target_before_fetching_metadata(
     tmp_path: Path,
 ) -> None:
     install_dir = tmp_path / "managed"
     install_dir.mkdir()
     target = install_dir / "ruyi"
-    target.write_bytes(b"not an ELF binary")
+    target.write_bytes(b"not a supported binary")
     helper = install_dir / "ruyi-upgrade"
     shutil.copy2(SCRIPT, helper)
     helper.chmod(0o755)
@@ -802,7 +833,7 @@ def test_ruyi_upgrade_requires_an_elf_target_before_fetching_metadata(
     )
 
     assert result.returncode != 0
-    assert "upgrade target is not an ELF executable" in result.stderr
+    assert "upgrade target is not an ELF or Mach-O executable" in result.stderr
     assert not (tmp_path / "curl.log").exists()
 
 
