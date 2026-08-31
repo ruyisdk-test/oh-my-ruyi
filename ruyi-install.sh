@@ -5,10 +5,13 @@ set -u
 PRIMARY_RELEASES_URL="https://api.ruyisdk.cn/releases/latest-pm"
 FALLBACK_RELEASES_URL="https://ruyisdk.org/data/api/api_ruyisdk_cn/releases_latest_pm.json"
 INSTALLER_URL="https://ruyisdk.org/install.sh"
+PRIVACY_POLICY_URL="https://ruyisdk.org/docs/legal/privacyPolicy/"
+INSTALLER_VERSION="20260831"
 
 INSTALL_DIR=${RUYI_INSTALL_DIR:-/usr/local/bin}
 UPGRADE=0
 DRY_RUN=0
+INSTALL_UPGRADE_HELPER=0
 STAGED_FILE=
 USE_SUDO=0
 
@@ -34,6 +37,7 @@ Usage:
   curl --proto '=https' --tlsv1.2 -fL $INSTALLER_URL | sh
 
 Options:
+  -v                     Show the installer version
   --install-dir DIR      Install ruyi into DIR. Default: /usr/local/bin
                          Ignored with --upgrade; its directory is used instead
   --upgrade              Upgrade the ELF ruyi beside this script
@@ -73,6 +77,10 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=1
       shift
       ;;
+    -v|--version)
+      printf '%s\n' "$INSTALLER_VERSION"
+      exit 0
+      ;;
     -h|--help)
       usage
       exit 0
@@ -108,22 +116,16 @@ case "$RAW_SYSTEM:$RAW_ARCH" in
   Darwin:arm64|Darwin:aarch64)
     PLATFORM_KEY=darwin/aarch64
     ;;
-  MINGW*:x86_64|MINGW*:amd64|MSYS*:x86_64|MSYS*:amd64|CYGWIN*:x86_64|CYGWIN*:amd64)
-    PLATFORM_KEY=windows/x86_64
-    [ "$UPGRADE" -eq 1 ] || TARGET_NAME=ruyi.exe
-    ;;
-  Linux:*|Darwin:*|MINGW*:*|MSYS*:*|CYGWIN*:*)
+#  MINGW*:x86_64|MINGW*:amd64|MSYS*:x86_64|MSYS*:amd64|CYGWIN*:x86_64|CYGWIN*:amd64)
+#    PLATFORM_KEY=windows/x86_64
+#    [ "$UPGRADE" -eq 1 ] || TARGET_NAME=ruyi.exe
+#    ;;
+  *)
     die "no official ruyi binary is published for $RAW_SYSTEM/$RAW_ARCH"
     ;;
-  *) die "unsupported operating system: $RAW_SYSTEM" ;;
 esac
 
 TARGET_FILE=$INSTALL_DIR/$TARGET_NAME
-if [ "$UPGRADE" -eq 0 ] \
-  && [ "$DRY_RUN" -eq 0 ] \
-  && { [ -e "$TARGET_FILE" ] || [ -L "$TARGET_FILE" ]; }; then
-  die "$TARGET_FILE already exists; this installer does not perform upgrades"
-fi
 
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/ruyi-install.XXXXXX") \
   || die "failed to create temporary directory"
@@ -139,11 +141,63 @@ else
 fi
 
 fetch() {
+  url=$1
+  output=${2:-}
+
   if [ "$FETCH_TOOL" = curl ]; then
-    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fL -o "$2" "$1"
+    if [ -n "$output" ]; then
+      curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fL -o "$output" "$url"
+    else
+      curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL "$url"
+    fi
+  elif [ -n "$output" ]; then
+    wget -O "$output" "$url"
   else
-    wget -O "$2" "$1"
+    wget -q -O - "$url"
   fi
+}
+
+ask_yes_no() {
+  if ! {
+    printf '%s [y/N] ' "$1" > /dev/tty \
+      && IFS= read -r answer < /dev/tty
+  } 2>/dev/null; then
+    printf '%s [y/N] ' "$1" >&2 || return 2
+    IFS= read -r answer || return 2
+  fi
+  case "$answer" in
+    y|Y|yes|YES|Yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+confirm_privacy_policy() {
+  [ "$UPGRADE" -eq 0 ] || return 0
+
+  printf '%s\n%s\n' \
+    "By downloading and using RuyiSDK, you agree to the license terms and the privacy statement." \
+    "$PRIVACY_POLICY_URL"
+
+  ask_yes_no "Do you agree to the license terms and privacy statement?"
+  case "$?" in
+    0) ;;
+    1) die "privacy policy not accepted" ;;
+    *) die "downloading Ruyi requires interactive privacy policy consent" ;;
+  esac
+}
+
+confirm_install_target() {
+  [ "$UPGRADE" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] || return 0
+  if [ -e "$TARGET_FILE" ] || [ -L "$TARGET_FILE" ]; then
+    ask_yes_no "Overwrite $TARGET_FILE?"
+  else
+    ask_yes_no "Continue installing Ruyi to $TARGET_FILE?"
+  fi
+  case "$?" in
+    0) ;;
+    1) die "installation cancelled" ;;
+    *) die "installation requires interactive confirmation" ;;
+  esac
 }
 
 warn_if_path_missing() {
@@ -173,28 +227,31 @@ version_is_newer() {
 prepare_upgrade() {
   [ "$UPGRADE" -eq 1 ] || return 0
   is_elf_binary "$TARGET_FILE" || die "upgrade target is not an ELF executable: $TARGET_FILE"
-  current_output=$(RUYI_TELEMETRY_OPTOUT=1 "$TARGET_FILE" version) \
+  current_output=$(RUYI_FORCE_ALLOW_ROOT=1 RUYI_TELEMETRY_OPTOUT=1 "$TARGET_FILE" version) \
     || die "failed to read the current ruyi version: $TARGET_FILE"
   CURRENT_VERSION=$(printf '%s\n' "$current_output" | awk '$1 == "Ruyi" { print $2; exit }')
   [ -n "$CURRENT_VERSION" ] || die "failed to read the current ruyi version: $TARGET_FILE"
 }
 
-offer_upgrade_helper() {
+confirm_upgrade_helper() {
   [ "$UPGRADE" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] || return 0
   helper_file=$INSTALL_DIR/ruyi-upgrade
   if [ -e "$helper_file" ] || [ -L "$helper_file" ]; then
-    return 0
+    ask_yes_no "Overwrite $helper_file?"
+  else
+    ask_yes_no "Install ruyi-upgrade into $helper_file?"
   fi
-  if ! printf 'Install ruyi-upgrade into %s? [y/N] ' "$helper_file" 2>/dev/null > /dev/tty \
-    || ! IFS= read -r answer 2>/dev/null < /dev/tty; then
-    warn "no interactive terminal detected; ruyi-upgrade was not installed"
-    return 0
-  fi
-  case "$answer" in
-    y|Y|yes|YES|Yes) ;;
+  prompt_status=$?
+  case "$prompt_status" in
+    0) INSTALL_UPGRADE_HELPER=1 ;;
+    2) warn "no interactive terminal detected; ruyi-upgrade was not installed"; return 0 ;;
     *) log "Skipped ruyi-upgrade installation."; return 0 ;;
   esac
+}
 
+install_upgrade_helper() {
+  [ "$INSTALL_UPGRADE_HELPER" -eq 1 ] || return 0
+  helper_file=$INSTALL_DIR/ruyi-upgrade
   if [ -f "$0" ]; then
     cp "$0" "$TMP_ROOT/ruyi-upgrade.new"
   else
@@ -271,13 +328,9 @@ install_binary() {
   if [ "$UPGRADE" -eq 1 ]; then
     is_elf_binary "$target_file" \
       || die "upgrade target changed and is no longer an ELF executable: $target_file"
-    run_privileged mv "$STAGED_FILE" "$target_file" \
-      || die "failed to replace $target_file"
-  else
-    run_privileged ln "$STAGED_FILE" "$target_file" 2>/dev/null \
-      || die "failed to install $target_file without replacing an existing path"
-    run_privileged rm -f "$STAGED_FILE" || die "failed to remove the staging file"
   fi
+  run_privileged mv "$STAGED_FILE" "$target_file" \
+    || die "failed to install $target_file"
   STAGED_FILE=
 }
 
@@ -285,7 +338,7 @@ fetch_release_data() {
   for release_url in "$PRIMARY_RELEASES_URL" "$FALLBACK_RELEASES_URL"; do
     log "Fetching release metadata from $release_url"
     : > "$PARSE_ERROR"
-    if fetch "$release_url" - | extract_urls - > "$RELEASE_DATA"; then
+    if fetch "$release_url" | extract_urls - > "$RELEASE_DATA"; then
       VERSION=$(sed -n '1p' "$RELEASE_DATA")
       return 0
     fi
@@ -318,7 +371,8 @@ sort_download_urls() {
     latency=$(ping_host "$host" 2>/dev/null \
       | awk 'match($0, /time[=<][0-9.]+/) { print substr($0, RSTART + 5, RLENGTH - 5); exit }')
     if [ -n "$latency" ]; then
-      log "Ping $host: $latency ms"
+      # log "Ping $host: $latency ms"
+      true
     else
       warn "could not measure latency for $host; trying it last"
       latency=999999999
@@ -341,7 +395,7 @@ show_selection() {
 verify_binary() {
   binary_file=$1
   chmod 0755 "$binary_file" || return 1
-  if ! RUYI_TELEMETRY_OPTOUT=1 "$binary_file" version > "$VERSION_OUTPUT" 2>&1; then
+  if ! RUYI_FORCE_ALLOW_ROOT=1 RUYI_TELEMETRY_OPTOUT=1 "$binary_file" version > "$VERSION_OUTPUT" 2>&1; then
     warn "downloaded binary failed its version check: $2"
     return 1
   fi
@@ -366,12 +420,11 @@ request_sudo() {
   fi
   command -v sudo >/dev/null 2>&1 || die "sudo is required to install into $INSTALL_DIR"
 
-  if ! printf 'Install Ruyi into %s with sudo? [y/N] ' "$INSTALL_DIR" > /dev/tty 2>/dev/null \
-    || ! IFS= read -r answer < /dev/tty 2>/dev/null; then
-    die "installation into $INSTALL_DIR requires interactive sudo consent"
-  fi
-  case "$answer" in
-    y|Y|yes|YES|Yes) ;;
+  ask_yes_no "Install Ruyi into $INSTALL_DIR with sudo?"
+  prompt_status=$?
+  case "$prompt_status" in
+    0) ;;
+    2) die "installation into $INSTALL_DIR requires interactive sudo consent" ;;
     *) die "installation cancelled" ;;
   esac
 
@@ -387,6 +440,9 @@ PARSE_ERROR=$TMP_ROOT/release.error
 CANDIDATE_URLS=$TMP_ROOT/urls.candidates
 VERSION_OUTPUT=$TMP_ROOT/version.out
 
+confirm_privacy_policy
+confirm_install_target
+confirm_upgrade_helper
 fetch_release_data || die "failed to fetch valid release metadata from the official endpoints"
 if [ "$UPGRADE" -eq 1 ] && ! version_is_newer "$VERSION" "$CURRENT_VERSION"; then
   log "Ruyi $CURRENT_VERSION is already at least as new as $VERSION; no upgrade is needed."
@@ -430,6 +486,5 @@ done < "$CANDIDATE_URLS"
 install_binary "$BINARY_FILE" "$TARGET_FILE"
 
 log "Ruyi $VERSION was installed successfully: $TARGET_FILE"
-sed -n '1,5p' "$VERSION_OUTPUT"
 
-offer_upgrade_helper
+install_upgrade_helper

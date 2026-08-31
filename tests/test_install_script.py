@@ -138,6 +138,7 @@ def _run_installer(
     user_id: int = 1000,
     script_path: Path | None = None,
     interactive_answers: str | None = None,
+    input_text: str | None = "y\ny\n",
 ) -> subprocess.CompletedProcess[str]:
     tool_dir = _make_fake_tools(tmp_path)
     temp_dir = tmp_path / "installer-tmp"
@@ -169,12 +170,13 @@ def _run_installer(
         if sys.platform != "linux" or terminal is None:
             pytest.skip("interactive installer test requires util-linux script")
         command = [terminal, "-qefc", shlex.join(command), "/dev/null"]
+        input_text = interactive_answers
     return subprocess.run(
         command,
         cwd=SCRIPT.parent,
         env=env,
         text=True,
-        input=interactive_answers,
+        input=input_text,
         capture_output=True,
         check=False,
         timeout=10,
@@ -252,6 +254,7 @@ def test_help_runs_in_supported_shells(shell_name: str) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "sh install.sh [OPTIONS]" in result.stdout
+    assert "-v                     Show the installer version" in result.stdout
     assert (
         "curl --proto '=https' --tlsv1.2 -fL https://ruyisdk.org/install.sh"
         in result.stdout
@@ -267,12 +270,40 @@ def test_help_runs_in_supported_shells(shell_name: str) -> None:
     assert "--upgrade [HELPER]" not in result.stdout
 
 
-def test_download_commands_show_progress_without_custom_timeouts() -> None:
+@pytest.mark.parametrize("shell_name", ["sh", "bash", "zsh"])
+@pytest.mark.parametrize("option", ["-v", "--version"])
+def test_version_options_report_release_date(shell_name: str, option: str) -> None:
+    shell = shutil.which(shell_name)
+    if shell is None:
+        pytest.skip(f"{shell_name} is not installed")
+
+    result = subprocess.run(
+        [shell, str(SCRIPT), option],
+        cwd=SCRIPT.parent,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "20260831\n"
+    assert result.stderr == ""
+
+
+def test_metadata_downloads_are_silent_but_binary_downloads_show_progress() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
+    fetch_start = source.index("fetch() {")
+    fetch_end = source.index("warn_if_path_missing() {")
+    fetch_source = source[fetch_start:fetch_end]
+
+    assert "-fsSL" in fetch_source
+    assert "-fL" in fetch_source
+    assert "-q -O -" in fetch_source
+    assert "OVERWRITE" not in source
+    assert 'fetch "$release_url" | extract_urls' in source
+    assert 'fetch "$url" "$BINARY_FILE"' in source
 
     for option in (
-        "--silent",
-        "--quiet",
         "--connect-timeout",
         "--max-time",
         "--timeout=",
@@ -330,7 +361,110 @@ def test_release_metadata_falls_back_to_ruyisdk_org(
         assert "channel stable is missing" in result.stderr
 
 
-def _build_version_binary(tmp_path: Path, version: str) -> Path:
+def test_privacy_policy_must_be_accepted_before_metadata_download(
+    tmp_path: Path,
+) -> None:
+    version = "1.2.3"
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+    result = _run_installer(
+        tmp_path,
+        ["--dry-run"],
+        {RELEASE_API_URL: release_file},
+        input_text="n\n",
+    )
+
+    assert result.returncode != 0
+    assert "privacy policy not accepted" in result.stderr
+    assert not (tmp_path / "curl.log").exists()
+
+
+def test_existing_target_requires_overwrite_confirmation(tmp_path: Path) -> None:
+    version = "1.2.3"
+    old_dir = tmp_path / "old"
+    new_dir = tmp_path / "new"
+    old_dir.mkdir()
+    new_dir.mkdir()
+    old_binary = _build_version_binary(old_dir, "1.2.2")
+    new_binary = _build_version_binary(new_dir, version)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+    install_dir = tmp_path / "bin"
+    install_dir.mkdir()
+    target = install_dir / "ruyi"
+    shutil.copy2(old_binary, target)
+    old_contents = target.read_bytes()
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(install_dir)],
+        {RELEASE_API_URL: release_file, mirror_url: new_binary},
+        input_text="y\ny\ny\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == new_binary.read_bytes()
+    assert target.read_bytes() != old_contents
+
+
+def test_declining_target_confirmation_stops_before_metadata_download(
+    tmp_path: Path,
+) -> None:
+    version = "1.2.3"
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+    install_dir = tmp_path / "bin"
+    install_dir.mkdir()
+    target = install_dir / "ruyi"
+    target.write_bytes(b"existing")
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(install_dir)],
+        {RELEASE_API_URL: release_file},
+        input_text="y\nn\n",
+    )
+
+    assert result.returncode != 0
+    assert "installation cancelled" in result.stderr
+    assert target.read_bytes() == b"existing"
+    assert not (tmp_path / "curl.log").exists()
+
+
+def test_declining_new_target_confirmation_stops_before_metadata_download(
+    tmp_path: Path,
+) -> None:
+    version = "1.2.3"
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(tmp_path / "bin")],
+        {RELEASE_API_URL: release_file},
+        input_text="y\nn\n",
+    )
+
+    assert result.returncode != 0
+    assert "installation cancelled" in result.stderr
+    assert not (tmp_path / "curl.log").exists()
+
+
+def _build_version_binary(
+    tmp_path: Path, version: str, *, requires_root_override: bool = False
+) -> Path:
     compiler = shutil.which("cc")
     if compiler is None:
         pytest.skip("a C compiler is required for executable validation")
@@ -341,9 +475,15 @@ def _build_version_binary(tmp_path: Path, version: str) -> Path:
             f"""
             #include <stdio.h>
             #include <string.h>
+            #include <stdlib.h>
 
             int main(int argc, char **argv) {{
                 if (argc == 2 && strcmp(argv[1], "version") == 0) {{
+                    const char *force_allow_root = getenv("RUYI_FORCE_ALLOW_ROOT");
+                    if ({int(requires_root_override)}
+                        && (force_allow_root == NULL || strcmp(force_allow_root, "1") != 0)) {{
+                        return 2;
+                    }}
                     puts("Ruyi {version}");
                     return 0;
                 }}
@@ -357,12 +497,35 @@ def _build_version_binary(tmp_path: Path, version: str) -> Path:
     return binary
 
 
-def _prepare_upgrade_tree(tmp_path: Path, current_version: str) -> tuple[Path, Path]:
+def test_version_check_sets_root_override(tmp_path: Path) -> None:
+    version = "1.2.3"
+    binary = _build_version_binary(tmp_path, version, requires_root_override=True)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(tmp_path / "bin")],
+        {RELEASE_API_URL: release_file, mirror_url: binary},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "bin" / "ruyi").read_bytes() == binary.read_bytes()
+
+
+def _prepare_upgrade_tree(
+    tmp_path: Path, current_version: str, *, requires_root_override: bool = False
+) -> tuple[Path, Path]:
     install_dir = tmp_path / "managed"
     install_dir.mkdir()
     current_dir = tmp_path / "current"
     current_dir.mkdir()
-    current_binary = _build_version_binary(current_dir, current_version)
+    current_binary = _build_version_binary(
+        current_dir, current_version, requires_root_override=requires_root_override
+    )
     if current_binary.read_bytes()[:4] != b"\x7fELF":
         pytest.skip("ruyi-upgrade only supports ELF binaries")
     target = install_dir / "ruyi"
@@ -372,6 +535,30 @@ def _prepare_upgrade_tree(tmp_path: Path, current_version: str) -> tuple[Path, P
     shutil.copy2(SCRIPT, helper)
     helper.chmod(0o755)
     return helper, target
+
+
+def test_upgrade_version_check_sets_root_override(tmp_path: Path) -> None:
+    helper, target = _prepare_upgrade_tree(
+        tmp_path, "1.2.3", requires_root_override=True
+    )
+    new_dir = tmp_path / "new"
+    new_dir.mkdir()
+    new_binary = _build_version_binary(new_dir, "1.3.0")
+    mirror_url, _ = _urls("1.3.0", "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload("1.3.0", {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        [],
+        {RELEASE_API_URL: release_file, mirror_url: new_binary},
+        script_path=helper,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == new_binary.read_bytes()
 
 
 def test_api_urls_are_used_in_order_and_bad_download_is_skipped(tmp_path: Path) -> None:
@@ -439,7 +626,7 @@ def test_install_can_store_an_upgrade_helper(
             INSTALLER_URL: installer_source,
         },
         script_path=installer,
-        interactive_answers="y\n",
+        interactive_answers="y\ny\ny\n",
     )
 
     assert result.returncode == 0, result.stderr
@@ -448,6 +635,38 @@ def test_install_can_store_an_upgrade_helper(
     assert helper.read_bytes() == SCRIPT.read_bytes()
     curl_log = (tmp_path / "curl.log").read_text(encoding="utf-8")
     assert (INSTALLER_URL in curl_log) == (script_source == "download")
+
+
+def test_existing_upgrade_helper_requires_overwrite_confirmation(
+    tmp_path: Path,
+) -> None:
+    version = "1.2.3"
+    binary = _build_version_binary(tmp_path, version)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+    install_dir = tmp_path / "bin"
+    install_dir.mkdir()
+    helper = install_dir / "ruyi-upgrade"
+    helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    helper.chmod(0o755)
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(install_dir)],
+        {RELEASE_API_URL: release_file, mirror_url: binary},
+        input_text="y\ny\ny\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert helper.read_bytes() == SCRIPT.read_bytes()
+    assert f"Overwrite {helper}?" in result.stderr
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert source.index(
+        "confirm_install_target\nconfirm_upgrade_helper"
+    ) < source.index("fetch_release_data ||")
 
 
 @pytest.mark.parametrize("entry_point", ["helper", "option"])
@@ -639,7 +858,14 @@ def test_download_urls_are_sorted_by_ping_latency(tmp_path: Path) -> None:
     assert "Ping mirror.iscas.ac.cn: 30.0 ms" in result.stdout
 
 
-def test_existing_target_is_not_replaced(tmp_path: Path) -> None:
+def test_existing_symlink_is_replaced_after_confirmation(tmp_path: Path) -> None:
+    version = "1.2.3"
+    binary = _build_version_binary(tmp_path, version)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
     install_dir = tmp_path / "bin"
     install_dir.mkdir()
     target = install_dir / "ruyi"
@@ -647,12 +873,13 @@ def test_existing_target_is_not_replaced(tmp_path: Path) -> None:
     result = _run_installer(
         tmp_path,
         ["--install-dir", str(install_dir)],
-        {},
+        {RELEASE_API_URL: release_file, mirror_url: binary},
+        input_text="y\ny\n",
     )
 
-    assert result.returncode != 0
-    assert "already exists; this installer does not perform upgrades" in result.stderr
-    assert target.is_symlink()
+    assert result.returncode == 0, result.stderr
+    assert not target.is_symlink()
+    assert target.read_bytes() == binary.read_bytes()
 
 
 def test_invalid_api_version_is_rejected(tmp_path: Path) -> None:
@@ -710,9 +937,7 @@ def test_legacy_macos_api_platform_key_is_rejected(tmp_path: Path) -> None:
     assert not (tmp_path / "bin").exists()
 
 
-@pytest.mark.parametrize(
-    "option", ["--channel", "--version", "--sha256", "--release-api-url"]
-)
+@pytest.mark.parametrize("option", ["--channel", "--sha256", "--release-api-url"])
 def test_removed_override_options_are_rejected(option: str, tmp_path: Path) -> None:
     result = subprocess.run(
         [str(SCRIPT), option, "value"],
