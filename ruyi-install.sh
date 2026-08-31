@@ -296,7 +296,7 @@ extract_urls() {
       json = json $0
     }
     END {
-      stable_start = index(json, "\"testing\":{")
+      stable_start = index(json, "\"stable\":{")
       if (stable_start == 0) fail("channel stable is missing")
       stable = substr(json, stable_start)
       version_key = "\"version\":\""
