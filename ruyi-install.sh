@@ -39,8 +39,8 @@ Usage:
 Options:
   -v                     Show the installer version
   --install-dir DIR      Install ruyi into DIR. Default: /usr/local/bin
-                         Ignored with --upgrade; its directory is used instead
-  --upgrade              Upgrade the ruyi beside this script
+                         Ignored with --upgrade; this script's directory is used instead
+  --upgrade              Upgrade the ruyi executable next to this script
   --dry-run              Print the selected download URLs without installing
   -h, --help             Show this help message
 
@@ -180,14 +180,14 @@ confirm_privacy_policy() {
   [ "$UPGRADE" -eq 0 ] || return 0
 
   printf '%s\n%s\n' \
-    "By downloading and using RuyiSDK, you agree to the license terms and the privacy statement." \
+    "By downloading and using RuyiSDK, you agree to the license terms and the privacy policy." \
     "$PRIVACY_POLICY_URL"
 
-  ask_yes_no "Do you agree to the license terms and privacy statement?"
+  ask_yes_no "Do you agree to the license terms and privacy policy?"
   case "$?" in
     0) ;;
-    1) die "privacy policy not accepted" ;;
-    *) die "downloading Ruyi requires interactive privacy policy consent" ;;
+    1) die "license terms and privacy policy not accepted" ;;
+    *) die "downloading Ruyi requires interactive acceptance of the license terms and privacy policy" ;;
   esac
 }
 
@@ -261,7 +261,7 @@ confirm_upgrade_helper() {
   prompt_status=$?
   case "$prompt_status" in
     0) INSTALL_UPGRADE_HELPER=1 ;;
-    2) warn "no interactive terminal detected; ruyi-upgrade was not installed"; return 0 ;;
+    2) warn "no interactive terminal detected; skipping ruyi-upgrade installation"; return 0 ;;
     *) log "Skipped ruyi-upgrade installation."; return 0 ;;
   esac
 }
@@ -278,7 +278,7 @@ install_upgrade_helper() {
     return 0
   }
   if ! sh -n "$TMP_ROOT/ruyi-upgrade.new"; then
-    warn "failed to download or validate ruyi-upgrade"
+    warn "ruyi-upgrade failed the shell syntax check"
     return 0
   fi
   install_binary "$TMP_ROOT/ruyi-upgrade.new" "$helper_file"
@@ -296,7 +296,7 @@ extract_urls() {
       json = json $0
     }
     END {
-      stable_start = index(json, "\"stable\":{")
+      stable_start = index(json, "\"testing\":{")
       if (stable_start == 0) fail("channel stable is missing")
       stable = substr(json, stable_start)
       version_key = "\"version\":\""
@@ -330,6 +330,8 @@ install_binary() {
   source_file=$1
   target_file=$2
 
+  [ ! -d "$target_file" ] || die "install target is a directory: $target_file"
+
   if ! mkdir -p "$INSTALL_DIR" 2>/dev/null; then
     request_sudo
     run_privileged mkdir -p "$INSTALL_DIR" || die "failed to create install directory: $INSTALL_DIR"
@@ -341,7 +343,7 @@ install_binary() {
       || die "failed to create a staging file in $INSTALL_DIR"
   }
   run_privileged cp "$source_file" "$STAGED_FILE" || die "failed to stage the ruyi binary"
-  run_privileged chmod 0755 "$STAGED_FILE" || die "failed to set installed permissions"
+  run_privileged chmod 0755 "$STAGED_FILE" || die "failed to set executable permissions"
   if [ "$UPGRADE" -eq 1 ]; then
     is_supported_binary "$target_file" \
       || die "upgrade target changed and is no longer an ELF or Mach-O executable: $target_file"
@@ -437,11 +439,11 @@ request_sudo() {
   fi
   command -v sudo >/dev/null 2>&1 || die "sudo is required to install into $INSTALL_DIR"
 
-  ask_yes_no "Install Ruyi into $INSTALL_DIR with sudo?"
+  ask_yes_no "Use sudo to install Ruyi into $INSTALL_DIR?"
   prompt_status=$?
   case "$prompt_status" in
     0) ;;
-    2) die "installation into $INSTALL_DIR requires interactive sudo consent" ;;
+    2) die "installation into $INSTALL_DIR requires interactive confirmation to use sudo" ;;
     *) die "installation cancelled" ;;
   esac
 
@@ -462,7 +464,7 @@ confirm_install_target
 confirm_upgrade_helper
 fetch_release_data || die "failed to fetch valid release metadata from the official endpoints"
 if [ "$UPGRADE" -eq 1 ] && ! version_is_newer "$VERSION" "$CURRENT_VERSION"; then
-  log "Ruyi $CURRENT_VERSION is already at least as new as $VERSION; no upgrade is needed."
+  log "Ruyi $CURRENT_VERSION is already $VERSION or newer; no upgrade is needed."
   exit 0
 fi
 awk '
@@ -475,11 +477,11 @@ awk '
   { print "warning: ignored unexpected download URL: " $0 > "/dev/stderr" }
   END { for (i = 1; i <= count; i++) print github[i] }
 ' "$RELEASE_DATA" > "$CANDIDATE_URLS"
-[ -s "$CANDIDATE_URLS" ] || die "no trusted download URLs found for stable channel and $PLATFORM_KEY"
+[ -s "$CANDIDATE_URLS" ] || die "no trusted download URLs found for the stable channel on $PLATFORM_KEY"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   show_selection "Download candidates:"
-  log "Dry run requested; no files were downloaded or installed."
+  log "Dry run complete; no Ruyi binary was downloaded or installed."
   exit 0
 fi
 
@@ -498,7 +500,7 @@ while IFS= read -r url; do
   warn "ignoring unusable download: $url"
 done < "$CANDIDATE_URLS"
 
-[ -f "$BINARY_FILE" ] || die "all API-provided downloads failed validation"
+[ -f "$BINARY_FILE" ] || die "all download candidates failed"
 
 install_binary "$BINARY_FILE" "$TARGET_FILE"
 
