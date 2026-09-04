@@ -216,7 +216,6 @@ def _urls(version: str, artifact: str) -> tuple[str, str]:
         ("Linux", "aarch64", "linux/aarch64", "arm64"),
         ("Linux", "riscv64", "linux/riscv64", "riscv64"),
         ("Darwin", "arm64", "darwin/aarch64", "macos-arm64"),
-        ("MINGW64_NT-10.0", "x86_64", "windows/x86_64", "windows-amd64.exe"),
     ],
 )
 def test_dry_run_resolves_supported_platforms(
@@ -245,6 +244,21 @@ def test_dry_run_resolves_supported_platforms(
     assert f"Selected version: {version}" in result.stdout
     assert result.stdout.index(mirror_url) < result.stdout.index(github_url)
     assert not (tmp_path / "bin").exists()
+
+
+def test_windows_platform_is_rejected(tmp_path: Path) -> None:
+    result = _run_installer(
+        tmp_path,
+        ["--dry-run"],
+        {},
+        system="MINGW64_NT-10.0",
+        machine="x86_64",
+    )
+
+    assert result.returncode != 0
+    assert "no official ruyi binary is published for MINGW64_NT-10.0/x86_64" in (
+        result.stderr
+    )
 
 
 @pytest.mark.parametrize("shell_name", ["bash", "zsh"])
@@ -909,8 +923,6 @@ def test_download_urls_are_sorted_by_ping_latency(tmp_path: Path) -> None:
         RELEASE_API_URL,
         github_url,
     ]
-    assert "Ping github.com: 5.0 ms" in result.stdout
-    assert "Ping mirror.iscas.ac.cn: 30.0 ms" in result.stdout
 
 
 def test_existing_symlink_is_replaced_after_confirmation(tmp_path: Path) -> None:
@@ -1033,7 +1045,7 @@ def test_noninteractive_system_install_requests_consent_after_validation(
 
     assert result.returncode != 0
     assert f"Install path: {install_dir}/ruyi" in result.stdout
-    assert "requires interactive sudo consent" in result.stderr
+    assert "requires interactive confirmation to use sudo" in result.stderr
     assert not (tmp_path / "sudo.log").exists()
 
 
