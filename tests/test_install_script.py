@@ -937,11 +937,16 @@ def test_existing_symlink_is_replaced_after_confirmation(tmp_path: Path) -> None
     assert target.read_bytes() == binary.read_bytes()
 
 
-def test_invalid_api_version_is_rejected(tmp_path: Path) -> None:
-    mirror_url, _ = _urls("1.2", "amd64")
+@pytest.mark.parametrize(
+    "invalid_version", ["1.2", "1.2.3-beta.1", "1.2.3+build"]
+)
+def test_invalid_api_version_is_rejected(
+    tmp_path: Path, invalid_version: str
+) -> None:
+    mirror_url, _ = _urls(invalid_version, "amd64")
     release_file = _write_json(
         tmp_path / "release.json",
-        _release_payload("1.2", {"linux/x86_64": [mirror_url]}),
+        _release_payload(invalid_version, {"linux/x86_64": [mirror_url]}),
     )
     result = _run_installer(
         tmp_path,
@@ -950,7 +955,7 @@ def test_invalid_api_version_is_rejected(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
-    assert "invalid semantic version: 1.2" in result.stderr
+    assert f"invalid semantic version: {invalid_version}" in result.stderr
 
 
 def test_untrusted_api_url_is_ignored(tmp_path: Path) -> None:

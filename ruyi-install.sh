@@ -304,7 +304,8 @@ extract_urls() {
       if (version_start == 0) fail("version is missing from channel stable")
       version = substr(stable, version_start + length(version_key))
       sub(/".*/, "", version)
-      if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/)
+      # The stable API publishes plain X.Y.Z releases only.
+      if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+$/)
         fail("invalid semantic version: " version)
 
       platform_key = "\"" platform "\":["
