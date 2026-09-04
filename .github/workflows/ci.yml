@@ -69,6 +69,8 @@ jobs:
   ruyi-compatibility:
     name: Latest compatible ruyi / Ubuntu / Python 3.12
     runs-on: ubuntu-latest
+    env:
+      UV_PRERELEASE: allow
 
     steps:
       - name: Check out source
