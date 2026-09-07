@@ -285,6 +285,27 @@ install_upgrade_helper() {
   log "Installed ruyi-upgrade: $helper_file"
 }
 
+init_ruyi_config() {
+  [ "$UPGRADE" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] || return 0
+  case "$1" in
+    https://mirror.iscas.ac.cn/*)
+      ruyi_mirror="https://mirror.iscas.ac.cn/git/ruyisdk/packages-index.git"
+      ;;
+    *) return 0 ;;
+  esac
+
+  current_remote=$(run_ruyi "$TARGET_FILE" config get repo.remote 2>/dev/null) || current_remote=
+  [ -z "$current_remote" ] || return 0
+  if ask_yes_no "Configure Ruyi to use the nearest detected mirror?"; then
+    if run_ruyi "$TARGET_FILE" config set repo.remote "$ruyi_mirror"; then
+      log "Configured Ruyi package index mirror: $ruyi_mirror"
+    else
+      warn "failed to configure Ruyi package index mirror"
+    fi
+  fi
+  return 0
+}
+
 extract_urls() {
   awk -v platform="$PLATFORM_KEY" -v error_file="$PARSE_ERROR" '
     function fail(message) {
@@ -490,11 +511,13 @@ sort_download_urls "$CANDIDATE_URLS" || die "failed to sort download URLs by lat
 show_selection "Download candidates (lowest latency first):"
 
 BINARY_FILE=$TMP_ROOT/$TARGET_NAME
+SELECTED_URL=
 
 while IFS= read -r url; do
   [ -n "$url" ] || continue
   log "Downloading $url"
   if fetch "$url" "$BINARY_FILE" && verify_binary "$BINARY_FILE" "$url"; then
+    SELECTED_URL=$url
     break
   fi
   rm -f "$BINARY_FILE"
@@ -508,3 +531,5 @@ install_binary "$BINARY_FILE" "$TARGET_FILE"
 log "Ruyi $VERSION was installed successfully: $TARGET_FILE"
 
 install_upgrade_helper
+
+init_ruyi_config "$SELECTED_URL"

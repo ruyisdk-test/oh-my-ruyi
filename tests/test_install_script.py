@@ -535,6 +535,27 @@ def _build_version_binary(
     return binary
 
 
+def _build_config_binary(tmp_path: Path, version: str, log_path: Path) -> Path:
+    binary = tmp_path / "ruyi-config-fixture"
+    log_literal = shlex.quote(str(log_path))
+    _write_executable(
+        binary,
+        f"""
+        #!/bin/sh
+        if [ "$1" = version ]; then
+            printf 'Ruyi {version}\\n'
+            exit 0
+        fi
+        if [ "$1" = config ]; then
+            printf '%s\\n' "$*" >> {log_literal}
+            exit 0
+        fi
+        exit 0
+        """,
+    )
+    return binary
+
+
 def test_sudo_version_check_runs_as_invoking_user(tmp_path: Path) -> None:
     version = "1.2.3"
     binary = _build_version_binary(tmp_path, version, expected_user="alice")
@@ -670,7 +691,7 @@ def test_install_can_store_an_upgrade_helper(
             INSTALLER_URL: installer_source,
         },
         script_path=installer,
-        interactive_answers="y\ny\ny\n",
+        interactive_answers="y\ny\ny\nn\n",
     )
 
     assert result.returncode == 0, result.stderr
@@ -679,6 +700,31 @@ def test_install_can_store_an_upgrade_helper(
     assert helper.read_bytes() == SCRIPT.read_bytes()
     curl_log = (tmp_path / "curl.log").read_text(encoding="utf-8")
     assert (INSTALLER_URL in curl_log) == (script_source == "download")
+
+
+def test_install_can_configure_the_selected_mirror(tmp_path: Path) -> None:
+    version = "1.2.3"
+    config_log = tmp_path / "config.log"
+    binary = _build_config_binary(tmp_path, version, config_log)
+    mirror_url, _ = _urls(version, "amd64")
+    release_file = _write_json(
+        tmp_path / "release.json",
+        _release_payload(version, {"linux/x86_64": [mirror_url]}),
+    )
+
+    result = _run_installer(
+        tmp_path,
+        ["--install-dir", str(tmp_path / "bin")],
+        {RELEASE_API_URL: release_file, mirror_url: binary},
+        interactive_answers="y\ny\ny\ny\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "bin" / "ruyi-upgrade").exists()
+    assert config_log.read_text(encoding="utf-8").splitlines() == [
+        "config get repo.remote",
+        "config set repo.remote https://mirror.iscas.ac.cn/git/ruyisdk/packages-index.git",
+    ]
 
 
 def test_existing_upgrade_helper_requires_overwrite_confirmation(
