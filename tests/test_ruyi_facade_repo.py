@@ -9,6 +9,7 @@ from oh_my_ruyi.services import ruyi_facade
 
 class FakeCompositeRepo:
     instances: list["FakeCompositeRepo"] = []
+    repos: list[SimpleNamespace] = []
 
     def __init__(self, entries, config) -> None:
         self.entries = list(entries)
@@ -23,10 +24,14 @@ class FakeCompositeRepo:
     def sync_one(self, repo_id: str) -> None:
         self.synced_ids.append(repo_id)
 
+    def iter_repos(self):
+        return iter(self.repos)
+
 
 @pytest.fixture(autouse=True)
 def fake_composite_repo(monkeypatch):
     FakeCompositeRepo.instances.clear()
+    FakeCompositeRepo.repos = []
     monkeypatch.setattr(ruyi_facade, "CompositeRepo", FakeCompositeRepo)
 
 
@@ -75,3 +80,42 @@ def test_provision_repo_requires_active_ruyisdk_repo() -> None:
 
     with pytest.raises(RuntimeError, match="active metadata repository 'ruyisdk'"):
         ruyi_facade.use_provision_repo(config)
+
+
+def _checkout(
+    tmp_path, *, remote: str = "https://example.test/ruyisdk"
+) -> SimpleNamespace:
+    root = tmp_path / "repos" / "ruyisdk"
+    (root / ".git").mkdir(parents=True)
+    return SimpleNamespace(remote=remote, root=str(root))
+
+
+def test_has_cached_provision_repo_detects_local_checkout(tmp_path) -> None:
+    FakeCompositeRepo.repos = [_checkout(tmp_path)]
+    config = SimpleNamespace(repo_entries=[_entry("ruyisdk")])
+
+    assert ruyi_facade.has_cached_provision_repo(config)
+
+
+def test_has_cached_provision_repo_rejects_missing_checkout(tmp_path) -> None:
+    FakeCompositeRepo.repos = [
+        SimpleNamespace(remote="https://example.test/ruyisdk", root=str(tmp_path / "x"))
+    ]
+    config = SimpleNamespace(repo_entries=[_entry("ruyisdk")])
+
+    assert not ruyi_facade.has_cached_provision_repo(config)
+
+
+def test_has_cached_provision_repo_accepts_local_only_repo(tmp_path) -> None:
+    FakeCompositeRepo.repos = [
+        SimpleNamespace(remote="", root=str(tmp_path / "local-only"))
+    ]
+    config = SimpleNamespace(repo_entries=[_entry("ruyisdk")])
+
+    assert ruyi_facade.has_cached_provision_repo(config)
+
+
+def test_has_cached_provision_repo_requires_active_ruyisdk() -> None:
+    config = SimpleNamespace(repo_entries=[_entry("ruyisdk", active=False)])
+
+    assert not ruyi_facade.has_cached_provision_repo(config)

@@ -712,6 +712,14 @@ class ProvisionMainWindow(QMainWindow):
                 "Enable the ruyisdk repository in Repo Management to load device metadata."
             )
             disabled = message == disabled_message
+            if not disabled and ruyi_facade.has_cached_provision_repo(
+                self.state.config
+            ):
+                # The update failed, but metadata synced earlier is still
+                # usable. Continue with it so a network or mirror problem does
+                # not block provisioning.
+                self._start_repo_init()
+                return
             self._welcome_status.setText(
                 message
                 if disabled

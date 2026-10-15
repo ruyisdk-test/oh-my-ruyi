@@ -414,6 +414,70 @@ def test_disabled_default_repo_stays_on_ready_page(
     assert window._welcome_status.property("statusKind") == "warning"
 
 
+def test_provision_update_failure_without_cache_blocks_provisioning(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ruyi_facade, "has_cached_provision_repo", lambda _config: False)
+    started: list[None] = []
+    monkeypatch.setattr(window, "_start_repo_init", lambda: started.append(None))
+
+    window._on_provision_repo_update_finished(False, "failed to fetch from remote")
+
+    assert started == []
+    assert window.state.mr is None
+    assert window._current_step == window.STEP_WELCOME
+    assert window._welcome_status.text() == (
+        "Repository update failed. See Repo Management output."
+    )
+    assert window._welcome_status.toolTip() == "failed to fetch from remote"
+    assert window._welcome_status.property("statusKind") == "warning"
+
+
+def test_provision_update_failure_with_cache_continues_on_cached_metadata(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ruyi_facade, "has_cached_provision_repo", lambda _config: True)
+    started: list[None] = []
+    monkeypatch.setattr(window, "_start_repo_init", lambda: started.append(None))
+    devices = [
+        ruyi_facade.DeviceChoice(entity=None, id="dev", display_name="Device")  # type: ignore[arg-type]
+    ]
+    monkeypatch.setattr(ruyi_facade, "list_devices", lambda _mr: devices)
+
+    window._on_provision_repo_update_finished(False, "failed to fetch from remote")
+
+    assert started == [None]
+
+    # Simulate the repository worker finishing with the cached checkout.
+    window._on_repo_ready(object())
+
+    assert window.state.mr is not None
+    assert window._current_step == window.STEP_DEVICE
+    assert window._device_list.count() == 1
+    assert window._device_list.currentItem() is not None
+    assert window._device_status.text() == ""
+
+
+def test_disabled_repo_message_never_falls_back_to_cached_metadata(
+    window: ProvisionMainWindow,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(ruyi_facade, "has_cached_provision_repo", lambda _config: True)
+    started: list[None] = []
+    monkeypatch.setattr(window, "_start_repo_init", lambda: started.append(None))
+    message = (
+        "Enable the ruyisdk repository in Repo Management to load device metadata."
+    )
+
+    window._on_provision_repo_update_finished(False, message)
+
+    assert started == []
+    assert window.state.mr is None
+    assert window._welcome_status.text() == message
+
+
 def test_empty_device_repo_uses_detail_view_not_status_label(
     window: ProvisionMainWindow,
     monkeypatch,

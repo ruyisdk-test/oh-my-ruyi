@@ -13,6 +13,7 @@ order and resume after long-running operations.
 from __future__ import annotations
 
 import itertools
+import os
 import platform
 import shutil
 import subprocess
@@ -29,7 +30,7 @@ from ruyi.ruyipkg.entity_provider import BaseEntity
 from ruyi.ruyipkg.host import get_native_host
 from ruyi.ruyipkg.install import do_install_atoms
 from ruyi.ruyipkg.pkg_manifest import PartitionKind, PartitionMapDecl
-from ruyi.ruyipkg.repo import DEFAULT_REPO_ID
+from ruyi.ruyipkg.repo import DEFAULT_REPO_ID, MetadataRepo
 
 from ruyi.device.provision import (
     PackageProvisionStrategy,
@@ -192,6 +193,27 @@ def sync_repo(config: GlobalConfig, mr: CompositeRepo) -> CompositeRepo:
     with _route_git_progress(getattr(config, "logger", None)):
         mr.sync_one(PROVISION_REPO_ID)
     return use_provision_repo(config)
+
+
+def _has_local_checkout(repo: MetadataRepo) -> bool:
+    if not repo.remote:
+        # A local-only repository never needs to be cloned or fetched.
+        return True
+    return os.path.exists(os.path.join(repo.root, ".git"))
+
+
+def has_cached_provision_repo(config: GlobalConfig) -> bool:
+    """Return whether provision metadata is already available on this computer.
+
+    Only local checkouts are inspected; nothing is cloned, fetched, or
+    otherwise touched over the network. Provisioning uses this to keep working
+    with previously synced metadata after a repository update fails.
+    """
+    try:
+        mr = use_provision_repo(config)
+    except RuntimeError:
+        return False
+    return all(_has_local_checkout(repo) for repo in mr.iter_repos())
 
 
 def _variant_entities(mr: CompositeRepo, dev: BaseEntity) -> list[BaseEntity]:

@@ -119,6 +119,12 @@ devices, device variants, and image combos.
 If the metadata does not contain those entities, the Device page shows the
 available entity types and provides an `Update metadata` action.
 
+Entering the Device Provision tab updates the active `ruyisdk` repository first.
+If that update fails while a previously synced metadata checkout is still
+present, provisioning continues with the cached metadata instead of stopping.
+When no local checkout exists, the Device page reports the failure and stays
+disabled until the repository can be updated.
+
 Device, variant, and image lists include only package-backed image combos that
 resolve to a usable provisioning strategy on the current computer.
 Documentation-only image entries are hidden, as are variants and devices left
